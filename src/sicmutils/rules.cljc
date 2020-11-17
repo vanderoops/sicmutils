@@ -36,6 +36,73 @@
   (and (v/integral? x)
        (not (v/nullity? (g/modulo x 2)))))
 
+(def logexp
+  (ruleset
+   (exp (* (:? n v/integral?) (log :x))) => (expt :x :n)
+
+   (exp (log :x)) => :x
+
+   #_
+   (let ((xs (rcf:simplify x)))
+     (assume! `(= (log (exp ,xs)) ,xs) 'logexp1))
+   (log (exp :x)) => :x
+
+   #_(and sqrt-expt-simplify?
+          (let ((xs (rcf:simplify x)))
+            (assume! `(= (sqrt (exp ,xs)) (exp (/ ,xs 2)))
+                     'logexp2)))
+   (sqrt (exp :x)) => (exp (/ :x 2))
+
+   (log (sqrt :x)) => (* (/ 1 2) (log :x))))
+
+(def magsimp
+  (ruleset
+   (magnitude (* :x :y :ys*))
+   =>
+   (* (magnitude :x) (magnitude (* :y :ys*)))
+
+   (magnitude (expt :x (:? n even-integer?)))
+   =>
+   (expt :x :n)
+   ))
+
+(def miscsimp
+  ;; should really be one-like!
+  (expt :x 0) => 1
+
+  (expt :x 1) => :x
+
+  #_
+  (let ((a (rcf:simplify a)) (b (rcf:simplify b)))
+    (or (and (integer? a) (integer? b))
+        (and (even-integer? b)
+             (integer? (rcf:simplify (symb:* a b))))
+        (and exponent-product-simplify?
+             (assume! `(= (expt (expt ,x ,a) ,b)
+                          (expt ,x (symb:* ,a ,b)))
+                      'exponent-product))))
+  (expt (expt :x :a) :b)
+  =>
+  (expt :x (* a b))
+
+  ;; gated on ^1/2->sqrt?
+  (expt :x (/ 1 2)) => (sqrt :x)
+
+  ;; a rare, expensive luxury
+  (* :fs1* :x :fs2* (expt :x :y) :fs3*)
+  =>
+  (* :f1* :f2* (expt :x (+ 1 :y)) :fs3*)
+
+  ;; a rare, expensive luxury
+  (* :fs1* (expt :x :y) :fs2* :x :fs3*)
+  =>
+  (* :f1* (expt :x (+ 1 :y)) :f2* :fs3*)
+
+  ;; a rare, expensive luxury
+  (* :fs1* (expt :x :y1) :fs2* (expt :x :y2) :fs3*)
+  =>
+  (* :fs1* :fs2* (expt :x (+ :y1 :y2)) :fs3*))
+
 (def sin-sq->cos-sq
   (rule-simplifier
    (ruleset
@@ -129,9 +196,6 @@
        (* :g1* (sqrt :b) :g2*))
     => (/ (* :f1* :f2* (sqrt (/ :a :b)))
           (* :g1* :g2*))
-
-
-    ;; others to follow
     )))
 
 (def sqrt-expand
@@ -143,7 +207,7 @@
     ;; radicals to cancel in various ways. The companion rule
     ;; sqrt-contract reassembles what remains."
 
-    ;; Scmutils, in each of these expansions, will `asssume!`
+    ;; Scmutils, in each of these expansions, will `assume!`
     ;; that the expressions named :x and :y are non-negative
 
     (sqrt (* :x :y)) => (* (sqrt :x) (sqrt :y))
@@ -153,7 +217,6 @@
     (sqrt (/ :x :y)) => (/ (sqrt :x) (sqrt :y))
 
     (sqrt (/ :x :y :ys*)) => (/ (sqrt :x) (sqrt (* :y :ys*)))
-
     )))
 
 
@@ -170,7 +233,7 @@
     ;; simplifier on interior subexpressions is a dubious idea given how
     ;; much "churn" there is already waiting for the rulesets to stabilize
 
-    ;; Scmutils, in each of these contractions, will `asssume!`
+    ;; Scmutils, in each of these contractions, will `assume!`
     ;; that the expressions named :x and :y are non-negative
 
     (* :a* (sqrt :x) :b* (sqrt :y) :c*)
@@ -189,7 +252,6 @@
        (* :c* (sqrt :y) :d*))
     => (/ (* :a* :b* (sqrt (/ :x :y)))
           (* :c* :d*))
-
     )))
 
 (def complex-trig
