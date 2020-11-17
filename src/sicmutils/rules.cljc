@@ -20,6 +20,7 @@
 (ns sicmutils.rules
   (:require [pattern.rule :refer [ruleset rule-simplifier]
              #?@(:cljs [:include-macros true])]
+            [sicmutils.complex :as c]
             [sicmutils.generic :as g]
             [sicmutils.value :as v]))
 
@@ -27,18 +28,41 @@
 ;; computation BEFORE substitution instead of just subbing in the (+ 1 ), for
 ;; example.
 
-(defn ^:private more-than-two? [x]
-  (and (v/number? x) (> x 2)))
+(defn- negative-number? [x]
+  (and (v/number? x)
+       (g/negative? x)))
 
-(defn ^:private at-least-two? [x]
-  (and (v/number? x) (>= x 2)))
+(defn- complex-number? [z]
+  (and (c/complex? z)
+       (not (v/nullity? (c/real-part z)))
+       (not (v/nullity? (c/imag-part z)))))
 
-(defn ^:private even-integer? [x]
+(defn- imaginary-number? [z]
+  (and (c/complex? z)
+       (not (v/nullity? z))
+       (v/nullity? (c/real-part z))))
+
+(defn- imaginary-integer? [z]
+  (and (c/complex? z)
+       (not (v/nullity? z))
+       (v/nullity? (c/real-part z))
+       (v/integral? (c/imag-part z))))
+
+(defn non-integer? [x]
+  (not (v/integral? x)))
+
+(defn- even-integer? [x]
   (and (v/integral? x) (v/nullity? (g/modulo x 2))))
 
-(defn ^:private odd-integer? [x]
+(defn- odd-integer? [x]
   (and (v/integral? x)
        (not (v/nullity? (g/modulo x 2)))))
+
+(defn- more-than-two? [x]
+  (and (v/number? x) (> x 2)))
+
+(defn- at-least-two? [x]
+  (and (v/number? x) (>= x 2)))
 
 (def logexp
   (ruleset
@@ -46,15 +70,8 @@
 
    (exp (log :x)) => :x
 
-   #_
-   (let ((xs (rcf:simplify x)))
-     (assume! `(= (log (exp ,xs)) ,xs) 'logexp1))
    (log (exp :x)) => :x
 
-   #_(and sqrt-expt-simplify?
-          (let ((xs (rcf:simplify x)))
-            (assume! `(= (sqrt (exp ,xs)) (exp (/ ,xs 2)))
-                     'logexp2)))
    (sqrt (exp :x)) => (exp (/ :x 2))
 
    (log (sqrt :x)) => (* (/ 1 2) (log :x))))
@@ -72,75 +89,41 @@
 
 (def miscsimp
   ;; should really be one-like!
-  (expt :x 0) => 1
-
-  (expt :x 1) => :x
-
-  #_
-  (let ((a (rcf:simplify a)) (b (rcf:simplify b)))
-    (or (and (integer? a) (integer? b))
-        (and (even-integer? b)
-             (integer? (rcf:simplify (symb:* a b))))
-        (and exponent-product-simplify?
-             (assume! `(= (expt (expt ,x ,a) ,b)
-                          (expt ,x (symb:* ,a ,b)))
-                      'exponent-product))))
-  (expt (expt :x :a) :b)
-  =>
-  (expt :x (* a b))
-
-  ;; gated on ^1/2->sqrt?
-  (expt :x (/ 1 2)) => (sqrt :x)
-
-  ;; a rare, expensive luxury
-  (* :fs1* :x :fs2* (expt :x :y) :fs3*)
-  =>
-  (* :f1* :f2* (expt :x (+ 1 :y)) :fs3*)
-
-  ;; a rare, expensive luxury
-  (* :fs1* (expt :x :y) :fs2* :x :fs3*)
-  =>
-  (* :f1* (expt :x (+ 1 :y)) :f2* :fs3*)
-
-  ;; a rare, expensive luxury
-  (* :fs1* (expt :x :y1) :fs2* (expt :x :y2) :fs3*)
-  =>
-  (* :fs1* :fs2* (expt :x (+ :y1 :y2)) :fs3*))
-
-(def sin-sq->cos-sq
-  (rule-simplifier
-   (ruleset
-    (expt (sin :x) (:? n at-least-two?))
-    => (* (expt (sin :x) (:? #(- (% 'n) 2)))
-          (- 1 (expt (cos :x) 2))))))
-
-(def ^:private split-high-degree-cosines
   (ruleset
-   (* :f1* (expt (cos :x) (:? n more-than-two?)) :f2*)
-   => (* (expt (cos :x) 2)
-         (expt (cos :x) (:? #(- (% 'n) 2)))
-         :f1*
-         :f2*)
+   (expt :x 0) => 1
 
-   (+ :a1* (expt (cos :x) (:? n more-than-two?)) :a2*)
-   => (+ (* (expt (cos :x) 2)
-            (expt (cos :x) (:? #(- (% 'n) 2))))
-         :a1*
-         :a2*)))
+   (expt :x 1) => :x
 
-(def ^:private split-high-degree-sines
-  (ruleset
-   (* :f1* (expt (sin :x) (:? n more-than-two?)) :f2*)
-   => (* (expt (sin :x) 2)
-         (expt (sin :x) (:? #(- (% 'n) 2)))
-         :f1*
-         :f2*)
+   #_
+   (let ((a (rcf:simplify a)) (b (rcf:simplify b)))
+     (or (and (integer? a) (integer? b))
+         (and (even-integer? b)
+              (integer? (rcf:simplify (symb:* a b))))
+         (and exponent-product-simplify?
+              (assume! `(= (expt (expt ,x ,a) ,b)
+                           (expt ,x (symb:* ,a ,b)))
+                       'exponent-product))))
+   (expt (expt :x :a) :b)
+   =>
+   (expt :x (:? #(g/* (:a %) (:b %))))
 
-   (+ :a1* (expt (sin :x) (:? n more-than-two?)) :a2*)
-   => (+ (* (expt (sin :x) 2)
-            (expt (sin :x) (:? #(- (% 'n) 2))))
-         :a1*
-         :a2*)))
+   ;; gated on ^1/2->sqrt?
+   (expt :x (/ 1 2)) => (sqrt :x)
+
+   ;; a rare, expensive luxury
+   (* :fs1* :x :fs2* (expt :x :y) :fs3*)
+   =>
+   (* :f1* :f2* (expt :x (+ 1 :y)) :fs3*)
+
+   ;; a rare, expensive luxury
+   (* :fs1* (expt :x :y) :fs2* :x :fs3*)
+   =>
+   (* :f1* (expt :x (+ 1 :y)) :f2* :fs3*)
+
+   ;; a rare, expensive luxury
+   (* :fs1* (expt :x :y1) :fs2* (expt :x :y2) :fs3*)
+   =>
+   (* :fs1* :fs2* (expt :x (+ :y1 :y2)) :fs3*)))
 
 (def simplify-square-roots
   (rule-simplifier
@@ -205,7 +188,6 @@
 (def sqrt-expand
   (rule-simplifier
    (ruleset
-
     ;; "distribute the radical sign across products and quotients.
     ;; but doing this may allow equal subexpressions within the
     ;; radicals to cancel in various ways. The companion rule
@@ -213,7 +195,6 @@
 
     ;; Scmutils, in each of these expansions, will `assume!`
     ;; that the expressions named :x and :y are non-negative
-
     (sqrt (* :x :y)) => (* (sqrt :x) (sqrt :y))
 
     (sqrt (* :x :y :ys*)) => (* (sqrt :x) (sqrt (* :y :ys*)))
@@ -227,7 +208,6 @@
 (def sqrt-contract
   (rule-simplifier
    (ruleset
-
     ;; scmutils note: in scmutils, each of these rules checks to see whether,
     ;; after sub-simplification, x and y are equal, and if so, the opportunity
     ;; is taken to subsitute a simpler result.
@@ -239,7 +219,6 @@
 
     ;; Scmutils, in each of these contractions, will `assume!`
     ;; that the expressions named :x and :y are non-negative
-
     (* :a* (sqrt :x) :b* (sqrt :y) :c*)
     => (* :a* :b* :c* (sqrt (* :x :y)))
 
@@ -258,47 +237,53 @@
           (* :c* :d*))
     )))
 
+(def specfun->logexp
+  (ruleset
+   (sqrt :x) => (exp (* (/ 1 2) (log :x)))
+
+   (atan :z)
+   =>
+   (/ (- (log (+ 1 (* (complex 0 1) :z)))
+         (log (- 1 (* (complex 0 1) :z))))
+      (complex 0 2))
+
+   (asin :z)
+   =>
+   (* (complex 0 -1)
+      (log (+ (* (complex 0 1) :z)
+              (sqrt (- 1 (expt :z 2))))))
+
+   (acos :z)
+   =>
+   (* (complex 0 -1)
+      (log (+ :z (* (complex 0 1)
+                    (sqrt (- 1 (expt :z 2)))))))
+
+   (sinh :u) => (/ (- (exp :u) (exp (* -1 :u))) 2)
+
+   (cosh :u) => (/ (+ (exp :u) (exp (* -1 :u))) 2)
+
+   (expt :x (:? y non-integer?)) => (exp (* :y (log :x)))
+   ))
+
+(def logexp->specfun
+  (ruleset
+   (exp (* -1 (log :x))) => (expt :x -1)
+
+   (exp (* (/ 1 2) (log :x1))) => (sqrt :x1)
+
+   (exp (* (/ -1 2) (log :x1))) => (/ 1 (sqrt :x1))
+
+   (exp (* (/ 3 2) (log :x1))) => (expt (sqrt :x1) 3)
+
+   (exp (* (/ -3 2) (log :x1))) => (expt (sqrt :x1) -3)
+
+   (exp (* :n1* (log :x) :n2*))
+   =>
+   (expt :x (* :n1* :n2*))
+   ))
+
 (comment
-  (define specfun->logexp
-    (rule-system
-     ( (sqrt (? x)) none (exp (* 1/2 (log (: x)))) )
-
-     ( (atan (? z))
-      none
-      (/ (- (log (+ 1 (* +i (: z)))) (log (- 1 (* +i (: z))))) +2i) )
-
-     ( (asin (? z))
-      none
-      (* -i (log (+ (* +i (: z)) (sqrt (- 1 (expt (: z) 2)))))) )
-
-     ( (acos (? z))
-      none
-      (* -i (log (+ (: z) (* +i (sqrt (- 1 (expt (: z) 2))))))) )
-
-     ( (sinh (? u)) none (/ (- (exp (: u)) (exp (* -1 (: u)))) 2) )
-
-     ( (cosh (? u)) none (/ (+ (exp (: u)) (exp (* -1 (: u)))) 2) )
-
-     ( (expt (? x) (? y non-integer?)) none (exp (* (: y) (log (: x)))) )
-     ))
-
-  (define logexp->specfun
-    (rule-system
-     ( (exp (* -1 (log (? x)))) none (expt (: x) -1) )
-
-     ( (exp (* 1/2 (log (? x1)))) none (sqrt (: x1)) )
-
-     ( (exp (* -1/2 (log (? x1)))) none (/ 1 (sqrt (: x1))) )
-
-     ( (exp (* 3/2 (log (? x1)))) none (expt (sqrt (: x1)) 3) )
-
-     ( (exp (* -3/2 (log (? x1)))) none (expt (sqrt (: x1)) -3) )
-
-     ( (exp (* (?? n1) (log (? x)) (?? n2)))
-      none
-      (expt (: x) (* (:: n1) (:: n2))) )
-     ))
-
   (define log-contract
     (rule-system
      ( (+ (?? x1) (log (? x2)) (?? x3) (log (? x4)) (?? x5))
@@ -459,41 +444,6 @@
       (* (: (n:invert d)) (: n)) )
 
      )))
-
-(def ^:private flush-obvious-ones
-  (ruleset
-   (+ :a1* (expt (sin :x) 2) :a2* (expt (cos :x) 2) :a3*)
-   => (+ 1 :a1* :a2* :a3*))
-
-  ;; gate on this:
-  #_
-  (let ((s1 (rcf:simplify `(* ,@f1 ,@f2)))
-        (s2 (rcf:simplify `(* ,@f3 ,@f4))))
-    (if (exact-zero? (rcf:simplify `(- ,s1 ,s2)))
-      s1
-      #f))
-
-  ;; TODO figure out predicate value!
-  #_#_#_
-  (+ :a1*
-     (* :f1* (expt (sin :x) 2) :f2*)
-     :a2*
-     (* :f3* (expt (cos :x) 2) :f4*)
-     :a3*)
-  =>
-  (+ :a1* :a2* :a3* (: predicate-value))
-
-  ;; are sines always before cosines after we poly simplify? they are in
-  ;; scmutils, so we should be alert for this. in scmutils, there are a couple
-  ;; of others that involve rcf:simplify, which we don't have, and we don't know
-  ;; if pcf:simplify is an acceptable substitute here; and we don't have a
-  ;; method for pasting the value of a predicate into a rule, so this is far
-  ;; from complete.
-  ;;
-  ;; TODO add this ability!
-  ;;
-  ;; TODO I think we CAN do rcf:simplify now.
-  )
 
 (def trig->sincos
   (rule-simplifier
@@ -922,6 +872,76 @@
       (* (expt (cos (: x)) (: (- n 2)))
          (- 1 (expt (sin (: x)) 2))) )
      )))
+
+(def sin-sq->cos-sq
+  (rule-simplifier
+   (ruleset
+    (expt (sin :x) (:? n at-least-two?))
+    => (* (expt (sin :x) (:? #(- (% 'n) 2)))
+          (- 1 (expt (cos :x) 2))))))
+
+(def ^:private split-high-degree-cosines
+  (ruleset
+   (* :f1* (expt (cos :x) (:? n more-than-two?)) :f2*)
+   => (* (expt (cos :x) 2)
+         (expt (cos :x) (:? #(- (% 'n) 2)))
+         :f1*
+         :f2*)
+
+   (+ :a1* (expt (cos :x) (:? n more-than-two?)) :a2*)
+   => (+ (* (expt (cos :x) 2)
+            (expt (cos :x) (:? #(- (% 'n) 2))))
+         :a1*
+         :a2*)))
+
+(def ^:private split-high-degree-sines
+  (ruleset
+   (* :f1* (expt (sin :x) (:? n more-than-two?)) :f2*)
+   => (* (expt (sin :x) 2)
+         (expt (sin :x) (:? #(- (% 'n) 2)))
+         :f1*
+         :f2*)
+
+   (+ :a1* (expt (sin :x) (:? n more-than-two?)) :a2*)
+   => (+ (* (expt (sin :x) 2)
+            (expt (sin :x) (:? #(- (% 'n) 2))))
+         :a1*
+         :a2*)))
+
+(def ^:private flush-obvious-ones
+  (ruleset
+   (+ :a1* (expt (sin :x) 2) :a2* (expt (cos :x) 2) :a3*)
+   => (+ 1 :a1* :a2* :a3*))
+
+  ;; gate on this:
+  #_
+  (let ((s1 (rcf:simplify `(* ,@f1 ,@f2)))
+        (s2 (rcf:simplify `(* ,@f3 ,@f4))))
+    (if (exact-zero? (rcf:simplify `(- ,s1 ,s2)))
+      s1
+      #f))
+
+  ;; TODO figure out predicate value!
+  #_#_#_
+  (+ :a1*
+     (* :f1* (expt (sin :x) 2) :f2*)
+     :a2*
+     (* :f3* (expt (cos :x) 2) :f4*)
+     :a3*)
+  =>
+  (+ :a1* :a2* :a3* (: predicate-value))
+
+  ;; are sines always before cosines after we poly simplify? they are in
+  ;; scmutils, so we should be alert for this. in scmutils, there are a couple
+  ;; of others that involve rcf:simplify, which we don't have, and we don't know
+  ;; if pcf:simplify is an acceptable substitute here; and we don't have a
+  ;; method for pasting the value of a predicate into a rule, so this is far
+  ;; from complete.
+  ;;
+  ;; TODO add this ability!
+  ;;
+  ;; TODO I think we CAN do rcf:simplify now.
+  )
 
 (def sincos-flush-ones
   (rule-simplifier
