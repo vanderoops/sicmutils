@@ -283,9 +283,11 @@
    (expt :x (* :n1* :n2*))
    ))
 
+
+
 (comment
-  (define log-contract
-    (rule-system
+  (def log-contract
+    (ruleset
      ( (+ (?? x1) (log (? x2)) (?? x3) (log (? x4)) (?? x5))
       none
       (+ (:: x1) (:: x3) (:: x5) (log (* (: x2) (: x4)))) )
@@ -308,34 +310,105 @@
          (:: x1)
          (:: x2)
          (:: x3)) )
-     ))
+     )))
 
-  (define log-expand
+(def log-expand
+  (ruleset
+   (log (* :x1 :x2 :xs*))
+   =>
+   (+ (log :x1) (log (* :x2 :xs*)))
+
+   (log (/ :x1 :x2))
+   =>
+   (- (log :x1) (log :x2))
+
+   (log (expt :x :e))
+   =>
+   (* :e (log :x))
+   ))
+
+(def log-extra
+  (ruleset
+   (* (:? n v/integral?) :f1* (log :x) :f2*)
+   =>
+   (* :f1* (log (expt :x :n)) :f2*)
+   ))
+
+(def canonicalize-partials
+  (rule-simplifier
+   (ruleset
+    ;; example: (((partial 2 1) ((partial 1 1) FF)) (up t (up x y) (down p_x p_y)))
+    ;; since the partial indices in the outer derivative are lexically
+    ;; greater than those of the inner, we canonicalize by swapping the
+    ;; order. This is the "equality of mixed partials."
+    (((partial :i*) ((partial :j*) :x)) :y*)
+    #(> 0 (compare (% :i*) (% :j*)))
+    (((partial :j*) ((partial :i*) :x)) :y*))))
+
+(comment
+  (define canonicalize-partials
     (rule-system
-     ( (log (* (? x1) (? x2) (?? xs)))
-      none
-      (+ (log (: x1)) (log (* (: x2) (:: xs)))) )
 
-     ( (log (/ (? x1) (? x2)))
+     ;; First turn nests into products.
+     ( ((partial (?? i)) ((partial (?? j)) (? f)))
       none
-      (- (log (: x1)) (log (: x2))) )
+      ((* (partial (:: i)) (partial (:: j))) (: f)))
 
-     ( (log (expt (? x) (? e)))
+     ( ((partial (?? i)) ((* (partial (?? j)) (?? more)) (? f)))
       none
-      (* (: e) (log (: x))) )
-     ))
+      ((* (partial (:: i)) (partial (:: j)) (:: more)) (: f)))
 
-  (define log-extra
-    (rule-system
-     ( (* (? n integer?) (?? f1) (log (? x)) (?? f2))
+     ;; Exponentiation of operators makes things hairy
+     ( ((expt (partial (?? i)) (? n)) ((partial (?? j)) (? f)))
       none
-      (* (:: f1) (log (expt (: x) (: n))) (:: f2)) )
-     ))
+      ((* (expt (partial (:: i)) (: n)) (partial (:: j))) (: f)))
 
-  )
+     ( ((partial (?? i)) ((expt (partial (?? j)) (? n)) (? f)))
+      none
+      ((* (partial (:: i)) (expt (partial (:: j)) (: n))) (: f)))
+
+     ( ((expt (partial (?? i)) (? n)) ((expt (partial (?? j)) (? m)) (? f)))
+      none
+      ((* (expt (partial (:: i)) (: n)) (expt (partial (:: j)) (: m))) (: f)))
+
+
+     ;; Already some accumulation
+     ( ((partial (?? i)) ((* (partial (?? j)) (?? more)) (? f)))
+      none
+      ((* (partial (:: i)) (partial (:: j)) (:: more)) (: f)))
+
+     ( ((expt (partial (?? i)) (? n)) ((* (partial (?? j)) (?? more)) (? f)))
+      none
+      ((* (expt (partial (:: i)) (: n)) (partial (:: j)) (:: more)) (: f)))
+
+     ( ((partial (?? i)) ((* (expt (partial (?? j)) (? m)) (?? more)) (? f)))
+      none
+      ((* (partial (:: i)) (expt (partial (:: j)) (: m)) (:: more)) (: f)))
+
+     ( ((expt (partial (?? i)) (? n)) ((* (expt (partial (?? j)) (? m)) (?? more)) (? f)))
+      none
+      ((* (expt (partial (:: i)) (: n)) (expt (partial (:: j)) (: m)) (:: more)) (: f)))
+
+
+     ;; Next sort products, if OK
+     ( (((* (?? xs) (partial (?? i)) (?? ys) (partial (?? j)) (?? zs))
+         (? f symbol?))
+        (?? args))
+      (let ((args (expression args)))
+        (and commute-partials?
+             (symb:elementary-access? i args)
+             (symb:elementary-access? j args)
+             (list< j i)))
+      (((* (:: xs) (partial (:: j)) (:: ys) (partial (:: i)) (:: zs))
+        (: f))
+       (:: args)) )
+     )))
 
 (def complex-trig
   ;; TODO: clearly more of these are needed.
+  ;;
+  ;; TODO check this in Clojurescript... does the 0.0 cause trouble here? EITHER
+  ;; WAY go replace it above.
   (rule-simplifier
    (ruleset
     (cos (* :z (complex 0.0 1.0)))
@@ -1175,73 +1248,3 @@
                  (simsqrt (triginv e3)))
                 (sqrt? (simsqrt e3))
                 (else e3)))))))
-
-(def canonicalize-partials
-  (rule-simplifier
-   (ruleset
-    ;; example: (((partial 2 1) ((partial 1 1) FF)) (up t (up x y) (down p_x p_y)))
-    ;; since the partial indices in the outer derivative are lexically
-    ;; greater than those of the inner, we canonicalize by swapping the
-    ;; order. This is the "equality of mixed partials."
-    (((partial :i*) ((partial :j*) :x)) :y*)
-    #(> 0 (compare (% :i*) (% :j*)))
-    (((partial :j*) ((partial :i*) :x)) :y*))))
-
-(comment
-  (define canonicalize-partials
-    (rule-system
-
-     ;; First turn nests into products.
-     ( ((partial (?? i)) ((partial (?? j)) (? f)))
-      none
-      ((* (partial (:: i)) (partial (:: j))) (: f)))
-
-     ( ((partial (?? i)) ((* (partial (?? j)) (?? more)) (? f)))
-      none
-      ((* (partial (:: i)) (partial (:: j)) (:: more)) (: f)))
-
-     ;; Exponentiation of operators makes things hairy
-     ( ((expt (partial (?? i)) (? n)) ((partial (?? j)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (partial (:: j))) (: f)))
-
-     ( ((partial (?? i)) ((expt (partial (?? j)) (? n)) (? f)))
-      none
-      ((* (partial (:: i)) (expt (partial (:: j)) (: n))) (: f)))
-
-     ( ((expt (partial (?? i)) (? n)) ((expt (partial (?? j)) (? m)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (expt (partial (:: j)) (: m))) (: f)))
-
-
-     ;; Already some accumulation
-     ( ((partial (?? i)) ((* (partial (?? j)) (?? more)) (? f)))
-      none
-      ((* (partial (:: i)) (partial (:: j)) (:: more)) (: f)))
-
-     ( ((expt (partial (?? i)) (? n)) ((* (partial (?? j)) (?? more)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (partial (:: j)) (:: more)) (: f)))
-
-     ( ((partial (?? i)) ((* (expt (partial (?? j)) (? m)) (?? more)) (? f)))
-      none
-      ((* (partial (:: i)) (expt (partial (:: j)) (: m)) (:: more)) (: f)))
-
-     ( ((expt (partial (?? i)) (? n)) ((* (expt (partial (?? j)) (? m)) (?? more)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (expt (partial (:: j)) (: m)) (:: more)) (: f)))
-
-
-     ;; Next sort products, if OK
-     ( (((* (?? xs) (partial (?? i)) (?? ys) (partial (?? j)) (?? zs))
-         (? f symbol?))
-        (?? args))
-      (let ((args (expression args)))
-        (and commute-partials?
-             (symb:elementary-access? i args)
-             (symb:elementary-access? j args)
-             (list< j i)))
-      (((* (:: xs) (partial (:: j)) (:: ys) (partial (:: i)) (:: zs))
-        (: f))
-       (:: args)) )
-     )))
