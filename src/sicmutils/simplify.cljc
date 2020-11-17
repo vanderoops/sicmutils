@@ -72,6 +72,11 @@
             *poly-analyzer* (poly-analyzer)]
     (f)))
 
+;; TODO make this
+(comment
+  (define simplify-and-flatten
+    (compose fpf:simplify rcf:simplify)))
+
 (def ^:private simplify-and-flatten #'*rf-analyzer*)
 
 (defn ^:private simplify-until-stable
@@ -95,19 +100,23 @@
 
 (def ^:private sin-sq->cos-sq-simplifier
   (simplify-and-canonicalize
-   rules/sin-sq->cos-sq simplify-and-flatten))
+   rules/sin-sq->cos-sq
+   simplify-and-flatten))
 
 (def ^:private sincos-simplifier
   (simplify-and-canonicalize
-   rules/sincos-flush-ones simplify-and-flatten))
+   rules/sincos-flush-ones
+   simplify-and-flatten))
 
 (def ^:private square-root-simplifier
   (simplify-and-canonicalize
-   rules/simplify-square-roots simplify-and-flatten))
+   rules/simplify-square-roots
+   simplify-and-flatten))
 
-;; looks like we might have the modules inverted: rulesets will need some functions from the
-;; simplification library, so this one has to go here. Not ideal the way we have split things
-;; up, but at least things are beginning to simplify adequately.
+;; looks like we might have the modules inverted: rulesets will need some
+;; functions from the simplification library, so this one has to go here. Not
+;; ideal the way we have split things up, but at least things are beginning to
+;; simplify adequately.
 
 (def ^:private simplifies-to-zero?
   #(-> % *poly-analyzer* v/nullity?))
@@ -115,6 +124,7 @@
 (def ^:private simplifies-to-unity?
   #(-> % *rf-analyzer* v/unity?))
 
+;; TODO see if we can move this into rules...
 (def trig-cleanup
   "This finds things like a - a cos^2 x and replaces them with a sin^2 x"
   (let [at-least-two? #(and (number? %) (>= % 2))]
