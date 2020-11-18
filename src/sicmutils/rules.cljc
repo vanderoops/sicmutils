@@ -288,28 +288,25 @@
 (comment
   (def log-contract
     (ruleset
-     ( (+ (?? x1) (log (? x2)) (?? x3) (log (? x4)) (?? x5))
-      none
-      (+ (:: x1) (:: x3) (:: x5) (log (* (: x2) (: x4)))) )
+     (+ :x1** (log :x2) :x3* (log :x4) :x5*)
+     =>
+     (+ :x1* :x3* :x5* (log (* :x2 :x4)))
 
-     ( (- (log (? x)) (log (? y)))
-      none
-      (log (/ (: x) (: y))) )
+     (- (log :x) (log :y))
+     =>
+     (log (/ :x :y))
 
-     ( (+ (?? x1)
-          (* (?? f1) (log (? x)) (?? f2))
-          (?? x2)
-          (* (?? f3) (log (? y)) (?? f4))
-          (?? x3))
-      (let ((s1 (rcf:simplify `(* ,@f1 ,@f2)))
-            (s2 (rcf:simplify `(* ,@f3 ,@f4))))
-        (if (exact-zero? (rcf:simplify `(- ,s1 ,s2)))
-          s1
-          #f))
-      (+ (* (log (* (: x) (: y))) (: predicate-value))
-         (:: x1)
-         (:: x2)
-         (:: x3)) )
+     (+ :x1*
+        (* :f1* (log :x) :f2*)
+        :x2*
+        (* :f3* (log :y) :f4*)
+        :x3*)
+     (let [s1 (rcf:simplify `(* ~@f1 ~@f2))
+           s2 (rcf:simplify `(* ~@f3 ~@f4))]
+       (when (exact-zero? (rcf:simplify `(- ~s1 ~s2)))
+         s1))
+     (+ (* (log (* :x :y)) :predicate-value)
+        :x1* :x2* :x3*)
      )))
 
 (def log-expand
@@ -345,64 +342,62 @@
     #(> 0 (compare (% :i*) (% :j*)))
     (((partial :j*) ((partial :i*) :x)) :y*))))
 
-(comment
-  (define canonicalize-partials
-    (rule-system
+;; TODO taken from scheme.
+(def canonicalize-partials*
+  (ruleset
+   ;; First turn nests into products.
+   ((partial :i*) ((partial :j*) :f))
+   =>
+   ((* (partial :i*) (partial :j*)) :f)
 
-     ;; First turn nests into products.
-     ( ((partial (?? i)) ((partial (?? j)) (? f)))
-      none
-      ((* (partial (:: i)) (partial (:: j))) (: f)))
+   ((partial :i*) ((* (partial :j*) :more*) :f))
+   =>
+   ((* (partial :i*) (partial :j*) :more*) :f)
 
-     ( ((partial (?? i)) ((* (partial (?? j)) (?? more)) (? f)))
-      none
-      ((* (partial (:: i)) (partial (:: j)) (:: more)) (: f)))
+   ;; Exponentiation of operators makes things hairy
+   ((expt (partial :i*) :n) ((partial :j*) :f))
+   =>
+   ((* (expt (partial :i*) :n) (partial :j*)) :f)
 
-     ;; Exponentiation of operators makes things hairy
-     ( ((expt (partial (?? i)) (? n)) ((partial (?? j)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (partial (:: j))) (: f)))
+   ((partial :i*) ((expt (partial :j*) :n) :f))
+   =>
+   ((* (partial :i*) (expt (partial :j*) :n)) :f)
 
-     ( ((partial (?? i)) ((expt (partial (?? j)) (? n)) (? f)))
-      none
-      ((* (partial (:: i)) (expt (partial (:: j)) (: n))) (: f)))
-
-     ( ((expt (partial (?? i)) (? n)) ((expt (partial (?? j)) (? m)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (expt (partial (:: j)) (: m))) (: f)))
-
-
-     ;; Already some accumulation
-     ( ((partial (?? i)) ((* (partial (?? j)) (?? more)) (? f)))
-      none
-      ((* (partial (:: i)) (partial (:: j)) (:: more)) (: f)))
-
-     ( ((expt (partial (?? i)) (? n)) ((* (partial (?? j)) (?? more)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (partial (:: j)) (:: more)) (: f)))
-
-     ( ((partial (?? i)) ((* (expt (partial (?? j)) (? m)) (?? more)) (? f)))
-      none
-      ((* (partial (:: i)) (expt (partial (:: j)) (: m)) (:: more)) (: f)))
-
-     ( ((expt (partial (?? i)) (? n)) ((* (expt (partial (?? j)) (? m)) (?? more)) (? f)))
-      none
-      ((* (expt (partial (:: i)) (: n)) (expt (partial (:: j)) (: m)) (:: more)) (: f)))
+   ((expt (partial :i*) :n) ((expt (partial :j*) :m) :f))
+   =>
+   ((* (expt (partial :i*) :n) (expt (partial :j*) :m)) :f)
 
 
-     ;; Next sort products, if OK
-     ( (((* (?? xs) (partial (?? i)) (?? ys) (partial (?? j)) (?? zs))
-         (? f symbol?))
-        (?? args))
-      (let ((args (expression args)))
-        (and commute-partials?
-             (symb:elementary-access? i args)
-             (symb:elementary-access? j args)
-             (list< j i)))
-      (((* (:: xs) (partial (:: j)) (:: ys) (partial (:: i)) (:: zs))
-        (: f))
-       (:: args)) )
-     )))
+   ;; Already some accumulation
+   ((partial :i*) ((* (partial :j*) :more*) :f))
+   =>
+   ((* (partial :i*) (partial :j*) :more*) :f)
+
+   ((expt (partial :i*) :n) ((* (partial :j*) :more*) :f))
+   =>
+   ((* (expt (partial :i*) :n) (partial :j*) :more*) :f)
+
+   ((partial :i*) ((* (expt (partial :j*) (? m)) :more*) :f))
+   =>
+   ((* (partial :i*) (expt (partial :j*) :m) :more*) :f)
+
+   ((expt (partial :i*) :n) ((* (expt (partial :j*) (? m)) :more*) :f))
+   =>
+   ((* (expt (partial :i*) :n) (expt (partial :j*) :m) :more*) :f)
+
+   ;; Next sort products, if OK
+   #_#_#_(((* :xs* (partial :i*) :ys* (partial :j*) :zs*)
+           ;; TODO check that this is waht we mean with symbol
+           (:? f symbol?))
+          :args*)
+   (let ((args (expression args)))
+     (and commute-partials?
+          (symb:elementary-access? i args)
+          (symb:elementary-access? j args)
+          (list< j i)))
+   (((* :xs* (partial :j*) :ys* (partial :i*) :zs*) :f)
+    :args*)
+   ))
 
 (def complex-trig
   ;; TODO: clearly more of these are needed.
@@ -424,7 +419,7 @@
 
 (comment
   (define complex-rules
-    (rule-system
+    (ruleset
      ( (make-rectangular (cos (? theta)) (sin (? theta)))
       none
       (exp (* +i (: theta))) )
