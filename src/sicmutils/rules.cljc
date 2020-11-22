@@ -283,8 +283,6 @@
    (expt :x (* :n1* :n2*))
    ))
 
-
-
 (comment
   (def log-contract
     (ruleset
@@ -342,6 +340,33 @@
     #(> 0 (compare (% :i*) (% :j*)))
     (((partial :j*) ((partial :i*) :x)) :y*))))
 
+(defn list<
+  [[h1 & l1-tail :as l1] [h2 & l2-tail :as l2]]
+  (cond (empty? l1) (not (empty? l2))
+        (empty? l2) false
+        (< h1 h2) true
+        (> h1 h2) false
+        :else (recur l1-tail l2-tail)))
+
+(comment
+  ;; TODO this should go into numsymb.cljc... or `structure`.
+  (defn symb:elementary-access? [access-chain args]
+    (letfn [(sea [chain thing]
+              (cond (and (seq chain)
+                         (or (eq? (car thing) 'up)
+                             (eq? (car thing) 'down)))
+                    (recur (rest chain)
+                           (list-ref (cdr thing) (car chain)))
+                    (null? chain)
+                    (or (not (pair? thing))
+                        (not (or (eq? (car thing) 'up)
+                                 (eq? (car thing) 'down))))
+                    :else false))])
+    (if (= (length args) 1)
+      (sea access-chain (first args))
+      (sea (rest access-chain)
+           (nth args (first access-chain))))))
+
 ;; TODO taken from scheme.
 (def canonicalize-partials*
   (ruleset
@@ -377,11 +402,11 @@
    =>
    ((* (expt (partial :i*) :n) (partial :j*) :more*) :f)
 
-   ((partial :i*) ((* (expt (partial :j*) (? m)) :more*) :f))
+   ((partial :i*) ((* (expt (partial :j*) :m) :more*) :f))
    =>
    ((* (partial :i*) (expt (partial :j*) :m) :more*) :f)
 
-   ((expt (partial :i*) :n) ((* (expt (partial :j*) (? m)) :more*) :f))
+   ((expt (partial :i*) :n) ((* (expt (partial :j*) :m) :more*) :f))
    =>
    ((* (expt (partial :i*) :n) (expt (partial :j*) :m) :more*) :f)
 
@@ -399,138 +424,39 @@
     :args*)
    ))
 
-(def complex-trig
-  ;; TODO: clearly more of these are needed.
-  ;;
-  ;; TODO check this in Clojurescript... does the 0.0 cause trouble here? EITHER
-  ;; WAY go replace it above.
-  (rule-simplifier
-   (ruleset
-    (cos (* :z (complex 0.0 1.0)))
-    => (cosh :z)
+;; ## Trigonometry
 
-    (sin (* :z (complex 0.0 1.0)))
-    => (* (complex 0.0 1.0) (sinh :z))
-
-    ;; Does this really belong here?
-    ;; It works by reducing n mod 4 and then indexing into [1 i -1 -i].
-    (expt (complex 0.0 1.0) (:? n v/integral?))
-    => (:? #([1 '(complex 0 1) -1 '(complex 0 -1)] (mod (% 'n) 4))))))
-
-(comment
-  (define complex-rules
-    (ruleset
-     ( (make-rectangular (cos (? theta)) (sin (? theta)))
-      none
-      (exp (* +i (: theta))) )
-
-     ( (real-part (make-rectangular (? x) (? y)))
-      none
-      (: x) )
-     ( (imag-part (make-rectangular (? x) (? y)))
-      none
-      (: x) )
-
-     ( (magnitude (make-rectangular (? x) (? y)))
-      none
-      (sqrt (+ (expt (: x) 2) (expt (: y) 2))) )
-     ( (angle (make-rectangular (? x) (? y)))
-      none
-      (atan (: y) (: x)) )
-
-
-     ( (real-part (make-polar (? m) (? a)))
-      none
-      (* (: m) (cos (: a))) )
-     ( (imag-part (make-polar (? m) (? a)))
-      none
-      (* (: m) (sin (: a))) )
-
-     ( (magnitude (make-polar (? m) (? a)))
-      none
-      (: m) )
-     ( (angle (make-polar (? m) (? a)))
-      none
-      (: a) )
-     )))
-
-(def divide-numbers-through
-  (rule-simplifier
-   (ruleset
-    (* 1 :factor)
-    => :factor
-
-    (* 1 :factors*)
-    => (* :factors*)
-
-    (/ (:? n v/number?) (:? d v/number?))
-    => (:? #(g// (% 'n) (% 'd)))
-
-    (/ (+ :terms*) (:? d v/number?))
-    => (+ (:?? #(map (fn [n] `(~'/ ~n ~(% 'd))) (% :terms*)))))))
-
-(comment
-  (define divide-numbers-through
-    (rule-system
-     ( (* 1 (? factor))
-      none
-      (: factor) )
-
-     ( (* 1 (?? factors))
-      none
-      (* (:: factors)) )
-
-     ( (/ (? n number?) (? d number?))
-      none
-      (: (/ n d)) )
-
-     ( (/ (+ (?? terms)) (? d number?))
-      none
-      (+ (:: (map (lambda (term) `(/ ,term ,d))
-                  terms))) )
-
-     ( (/ (* (? n number?) (?? factors)) (? d number?))
-      none
-      (* (: (/ n d)) (:: factors)) )
-
-     ( (/ (* (?? factors)) (? d number?))
-      none
-      (* (: (n:invert d)) (:: factors)) )
-
-
-     ( (/ (? n) (* (? d number?) (? factor)))
-      none
-      (/ (/ (: n) (: d)) (: factor)) )
-
-     ( (/ (? n) (* (? d number?) (?? factors)))
-      none
-      (/ (/ (: n) (: d)) (* (:: factors))) )
-
-
-     ( (/ (? n) (? d number?))
-      none
-      (* (: (n:invert d)) (: n)) )
-
-     )))
+;; the following rules are used to convert all trig expressions to ones
+;; involving only sin and cos functions, and to make 1-arg atan into 2-arg atan.
 
 (def trig->sincos
   (rule-simplifier
    (ruleset
-    ;; GJS has other rules: to map cot, sec and csc to sin/cos, but
-    ;; I don't think we need those since we transform those to sin/cos
-    ;; in the env namespace.
-    (tan :x) => (/ (sin :x) (cos :x)))))
+    (tan :x) => (/ (sin :x) (cos :x))
+
+    (cot :x) => (/ (cos :x) (sin :x))
+
+    (sec :x) => (/ 1 (cos :x))
+
+    (csc :x) => (/ 1 (sin :x))
+
+    (atan (/ :y :x)) => (atan :y :x)
+
+    (atan :y) => (atan :y 1)
+    )))
 
 ;; note the difference in interface between rulesets and rule simplifiers.
-;; rulesets return nil when they're not applicable (unless you specify a
-;; custom fail continuation). Rule-simplifiers pass expressions through.
-
+;; rulesets return nil when they're not applicable (unless you specify a custom
+;; fail continuation). Rule-simplifiers pass expressions through.
 (def sincos->trig
   (rule-simplifier
    (ruleset
-    ;; undoes the effect of trig->sincos
-    (/ (sin :x) (cos :x))
-    => (tan :x)
+    ;; undoes the effect of trig->sincos.
+    (/ (sin :x) (cos :x)) => (tan :x)
+
+    (/ (* :n1* (sin :x) :n2*) (cos :x))
+    =>
+    (* :n1* (tan :x) :n2*)
 
     (/ (sin :x) (* :d1* (cos :x) :d2*))
     => (/ (tan :x) (* :d1* :d2*))
@@ -539,73 +465,6 @@
        (* :d1* (cos :x) :d2*))
     => (/ (* :n1* (tan :x) :n2*)
           (* :d1* :d2*)))))
-
-(comment
-  ;;;; trigonometry
-
-;;; the following rules are used to convert all trig expressions to
-;;; ones involving only sin and cos functions, and to make 1-arg atan
-;;; into 2-arg atan.
-
-  (define trig->sincos
-    (rule-system
-
-     ( (tan (? x)) none (/ (sin (: x)) (cos (: x))) )
-
-     ( (cot (? x)) none (/ (cos (: x)) (sin (: x))) )
-
-     ( (sec (? x)) none (/ 1 (cos (: x))) )
-
-     ( (csc (? x)) none (/ 1 (sin (: x))) )
-
-     ( (atan (/ (? y) (? x))) none (atan (: y) (: x)) )
-
-     ( (atan (? y)) none (atan (: y) 1) )
-
-     ))
-
-
-;;; sometimes we want to express combinations of sin and cos in terms
-;;; of other functions.
-
-  (define sincos->trig
-    (rule-system
-     ( (/ (sin (? x)) (cos (? x))) none (tan (: x)) )
-
-     ( (/ (* (?? n1) (sin (? x)) (?? n2)) (cos (? x)))
-      none
-      (* (:: n1) (tan (: x)) (:: n2)) )
-
-
-     ( (/ (sin (? x)) (* (?? d1) (cos (? x)) (?? d2)))
-      none
-      (/ (tan (: x)) (* (:: d1) (:: d2))) )
-
-
-     ( (/ (* (?? n1) (sin (? x)) (?? n2))
-          (* (?? d1) (cos (? x)) (?? d2)))
-      none
-      (/ (* (:: n1) (tan (: x)) (:: n2))
-         (* (:: d1) (:: d2))) )
-
-                                        ;   ( (/ (cos (? x)) (sin (? x))) none (cot (: x)) )
-
-                                        ;   ( (/ (* (?? n1) (cos (? x)) (?? n2)) (sin (? x)))
-                                        ;     none
-                                        ;     (* (:: n1) (cot (: x)) (:: n2)) )
-
-
-                                        ;   ( (/ (cos (? x)) (* (?? d1) (sin (? x)) (?? d2)))
-                                        ;     none
-                                        ;     (/ (cot (: x)) (* (:: d1) (:: d2))) )
-
-                                        ;   ( (/ (* (?? n1) (cos (? x)) (?? n2))
-                                        ;	(* (?? d1) (sin (? x)) (?? d2)))
-                                        ;     none
-                                        ;     (/ (* (:: n1) (cot (: x)) (:: n2))
-                                        ;	(* (:: d1) (:: d2))) )
-     ))
-  )
 
 (def triginv
   (rule-simplifier
@@ -624,7 +483,7 @@
 
 (comment
   (define triginv
-    (rule-system
+    (ruleset
 
      ( (atan (? y) (? x))
       (and aggressive-atan-simplify?
@@ -642,7 +501,7 @@
                  (atan ys xs)
                  (let ((s (rcf:simplify `(gcd ,ys ,xs))))
                    (if (equal? s 1)
-                     #f            ;do nothing
+                     false ;do nothing
                      (let ((note `(assuming (positive? ,s)))
                            (yv (rcf:simplify `(/ ,ys ,s)))
                            (xv (rcf:simplify `(/ ,xs ,s))))
@@ -702,6 +561,7 @@
       (/ (: b) (sqrt (+ (expt (: a) 2) (expt (: b) 2)))) )
 
      )))
+
 
 (comment
   ;; confirm that these all apply in numsymb, on construction.
@@ -987,7 +847,7 @@
         (s2 (rcf:simplify `(* ,@f3 ,@f4))))
     (if (exact-zero? (rcf:simplify `(- ,s1 ,s2)))
       s1
-      #f))
+      false))
 
   ;; TODO figure out predicate value!
   #_#_#_
@@ -1218,6 +1078,102 @@
          (exp (* (: (n:* (n:imag-part x) +i)) (:: factors)))) )
      ))
   )
+
+;; TODO HELP
+(def complex-trig
+  ;; TODO: clearly more of these are needed.
+  ;;
+  ;; TODO check this in Clojurescript... does the 0.0 cause trouble here? EITHER
+  ;; WAY go replace it above.
+  (rule-simplifier
+   (ruleset
+    (cos (* :z (complex 0.0 1.0)))
+    => (cosh :z)
+
+    (sin (* :z (complex 0.0 1.0)))
+    => (* (complex 0.0 1.0) (sinh :z))
+
+    ;; Does this really belong here?
+    ;; It works by reducing n mod 4 and then indexing into [1 i -1 -i].
+    (expt (complex 0.0 1.0) (:? n v/integral?))
+    => (:? #([1 '(complex 0 1) -1 '(complex 0 -1)] (mod (% 'n) 4))))))
+
+(comment
+  (define complex-rules
+    (ruleset
+     ( (make-rectangular (cos (? theta)) (sin (? theta)))
+      none
+      (exp (* +i (: theta))) )
+
+     ( (real-part (make-rectangular (? x) (? y)))
+      none
+      (: x) )
+     ( (imag-part (make-rectangular (? x) (? y)))
+      none
+      (: x) )
+
+     ( (magnitude (make-rectangular (? x) (? y)))
+      none
+      (sqrt (+ (expt (: x) 2) (expt (: y) 2))) )
+     ( (angle (make-rectangular (? x) (? y)))
+      none
+      (atan (: y) (: x)) )
+
+
+     ( (real-part (make-polar (? m) (? a)))
+      none
+      (* (: m) (cos (: a))) )
+     ( (imag-part (make-polar (? m) (? a)))
+      none
+      (* (: m) (sin (: a))) )
+
+     ( (magnitude (make-polar (? m) (? a)))
+      none
+      (: m) )
+     ( (angle (make-polar (? m) (? a)))
+      none
+      (: a) )
+     )))
+
+(def divide-numbers-through
+  (rule-simplifier
+   (ruleset
+    (* 1 :factor) => :factor
+
+    (* 1 :factors*) => (* :factors*)
+
+    (/ (:? n v/number?) (:? d v/number?))
+    => (:? #(g// (% 'n) (% 'd)))
+
+    (/ (+ :terms*) (:? d v/number?))
+    => (+ (:?? #(map (fn [n] `(~'/ ~n ~(% 'd)))
+                     (% :terms*)))))))
+
+(comment
+  (def divide-numbers-through
+    (ruleset
+     (/ (* (:? n v/number?) :factors*)
+        (:? d v/number?))
+     =>
+     (* (:? #(/ (% n') (% d')))
+        :factors*)
+
+     (/ (* :factors*) (:? d v/number?))
+     =>
+     (* (:? #(g/invert (% 'd))) :factors*)
+
+     (/ :n (* (:? d v/number?) :factor))
+     =>
+     (/ (/ :n :d) :factor)
+
+     (/ :n (* (:? d v/number?) :factors*))
+     =>
+     (/ (/ :n :d) (* :factors*))
+
+     (/ :n (:? d v/number?))
+     =>
+     (* (:? #(g/invert (% 'd))) :n)
+     )))
 
 (defn universal-reductions
   [x]

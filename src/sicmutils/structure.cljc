@@ -239,6 +239,12 @@
       (and (instance? Structure s)
            (= (.-orientation s) ::up))))
 
+(defn down?
+  "True if s in a `down` structure."
+  [s]
+  (and (instance? Structure s)
+       (= (.-orientation s) ::down)))
+
 (defn orientation
   "Return the orientation of s, either ::up or ::down."
   [^Structure s]
