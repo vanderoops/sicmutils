@@ -567,7 +567,7 @@
 ;; Now the actual type. The `terms` field is a term-list vector that will
 ;; remain (contractually!) sorted by its list of tags.
 
-(declare d:apply compare equiv finite-term from-terms one?)
+(declare d:apply compare equiv finite-term from-terms one? tag-active?)
 
 (deftype Differential [terms]
   ;; A [[Differential]] as implemented can act as a chain-rule accounting device
@@ -610,15 +610,18 @@
   ;; all terms that contain the tag (with the tag removed!) This can create
   ;; duplicate terms, so use [[from-terms]] to massage the result into
   ;; well-formedness again.
-  (extract-tangent [_ tag]
-    (from-terms
-     (mapcat (fn [term]
-               (let [tagv (tags term)]
-                 (if (uv/contains? tagv tag)
-                   [(make-term (uv/disj tagv tag)
-                               (coefficient term))]
-                   [])))
-             terms)))
+  (extract-tangent [this tag]
+    (do (prn this tag)
+        (if (tag-active? tag)
+          this
+          (from-terms
+           (mapcat (fn [term]
+                     (let [tagv (tags term)]
+                       (if (uv/contains? tagv tag)
+                         [(make-term (uv/disj tagv tag)
+                                     (coefficient term))]
+                         [])))
+                   terms)))))
 
   v/Value
   (zero? [this]
@@ -787,6 +790,15 @@
 
 ;; ## Accessor Methods
 
+(def ^:dynamic *active-tags* #{})
+
+(defn with-active-tag [tag f args]
+  (binding [*active-tags* (conj *active-tags* tag)]
+    (apply f args)))
+
+(defn tag-active? [tag]
+  (contains? *active-tags* tag))
+
 (defn differential?
   "Returns true if the supplied object is an instance of `Differential`, false
   otherwise."
@@ -924,8 +936,8 @@
   ([primal tag]
    (bundle primal 1 tag))
   ([primal tangent tag]
-   (let [term (make-term (uv/make [tag]) tangent)]
-     (d:+ primal (->Differential [term])))))
+   (let [term (make-term (uv/make [tag]) 1)]
+     (d:+ primal (d:* tangent (->Differential [term]))))))
 
 ;; ## Differential Parts API
 ;;
@@ -1183,7 +1195,7 @@
     (if-not (differential? x)
       (f x)
       (let [[px tx] (primal-tangent-pair x)
-            fx      (f px)]
+            fx      (call px)]
         (if (and (v/number? tx) (v/zero? tx))
           fx
           (d:+ fx (d:* (df:dx px) tx)))))))

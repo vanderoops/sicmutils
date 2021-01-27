@@ -1446,10 +1446,39 @@
        (call x 1)))
 
     ([x x']
+     ;; I think the answer is... do NOT bundle the args internally! Only bundle
+     ;; when you get a NON-function return value!
      (letfn [(bun [x x' tag]
+               (prn "looking for cont: " x x')
                (cond (and (f/function? x) (f/function? x'))
-                     ;; This is the case from the paper.
                      (fn [y]
+                       (prn "argument!" y)
+                       (if (sd/tag-active? tag)
+                         (let [fresh (sd/fresh-tag)]
+                           (sd/with-active-tag
+                             tag
+                             (bun (x (sd/replace-tag y tag fresh))
+                                  (x' (sd/replace-tag y tag fresh))
+                                  tag)))
+                         (bun (x y) (x' y) tag))
+                       #_(if (or (f/function? y)
+                                 (not (and (f/function? (x y))
+                                           (f/function? (x' y)))))
+                           (bun (x y) (x' y) tag)
+
+                           ;; This bundles everything up so NO tag effect happens
+                           ;; at the bottom, ever.
+                           (sd/bundle (x y) (x' y) tag))
+
+                       #_(if (or (f/function? y)
+                                 (not (and (f/function? (x y))
+                                           (f/function? (x' y)))))
+                           (bun (x y) (x' y) tag)
+
+                           ;; This bundles everything up so NO tag effect happens
+                           ;; at the bottom, ever.
+                           (sd/bundle (x y) (x' y) tag))
+
                        ;; This is the version in the paper. NOTE - this has a
                        ;; bug in it. If `y` is a dual, `x` and `x'` are both
                        ;; going to act on all nested duals. So if you have a
@@ -1457,53 +1486,33 @@
                        ;;
                        ;; you really want to force all nested numbers over to
                        ;; x'.
-                       (condp = *version*
-                         :paper
-                         (let [fresh (sd/fresh-tag)]
-                           (-> (bun (x (sd/replace-tag y tag fresh))
+                       #_(condp = *version*
+                           :paper
+                           (let [fresh (sd/fresh-tag)]
+                             (-> (bun (x (sd/replace-tag y tag fresh))
 
-                                    ;; NOTE: This is where the bug is. It
-                                    ;; currently doesn't handle nested
-                                    ;; derivatives... at least in my
-                                    ;; implementation! Let's see if it
-                                    ;; reproduces.
-                                    (x' (sd/replace-tag y tag fresh))
-                                    tag)
-                               (sd/replace-tag fresh tag)))
+                                      ;; NOTE: This is where the bug is. It
+                                      ;; currently doesn't handle nested
+                                      ;; derivatives... at least in my
+                                      ;; implementation! Let's see if it
+                                      ;; reproduces.
+                                      (x' (sd/replace-tag y tag fresh))
+                                      tag)
+                                 (sd/replace-tag fresh tag)))
 
-                         ;; same buggy behavior as the paper.
-                         :paper-no-replacement
-                         (bun (x y) (x' y) tag)
+                           ;; same buggy behavior as the paper.
+                           :paper-no-replacement
+                           (bun (x y) (x' y) tag)
 
-                         ;; My rewrite. I think this is actually... more
-                         ;; correct, MAYBE, if you want to be able to handle
-                         ;; dual number inputs too? It definitely gets the right
-                         ;; result.
-                         ;;
-                         ;; TODO for GJS - if you do this, you need to use
-                         ;; letrec internally to override the OTHER x' if x is
-                         ;; already lifted.
-                         ;;
-                         ;; TODO this will not work as written for them since
-                         ;; they don't have function algebra. But it does get
-                         ;; the right result!
-                         #_((sd/lift-1 x x') #_call (if (f/function? y)
-                                                      (bun y (j* y) tag)
-                                                      (bun y 1 tag)))
-                         (let [f     x
-                               df:dx x'
-                               arg   (if (f/function? y)
-                                       (bun y (j* y) tag)
-                                       (bun y 1 tag))
-                               call  (fn call [x]
-                                       (if-not (sd/differential? x)
-                                         (f x)
-                                         (let [[px tx] (sd/primal-tangent-pair x)
-                                               fx      (call px)]
-                                           (if (and (v/number? tx) (v/zero? tx))
-                                             fx
-                                             (sd/d:+ fx (sd/d:* (df:dx px) tx))))))]
-                           (call arg))))
+                           ;; My rewrite. I think this is actually... more
+                           ;; correct, MAYBE?
+                           (let [xy  (x y)
+                                 x'y (x' y)]
+                             ;; so if y is a function, you want to push up another
+                             ;; layer??
+                             (if (f/function? y)
+                               (bun xy (x' y) tag)
+                               (sd/bundle xy (x' y) tag)))))
 
                      ;; NOTE: Yet another place to be careful. Here you want to
                      ;; treat x' as the sensitivity produced by x given its
@@ -1517,7 +1526,7 @@
                      (and (v/numerical? x) (v/numerical? x'))
                      (sd/bundle x x' tag)
 
-                     :else (u/illegal "Illegal arguments!")))]
+                     :else (u/illegal (str "Illegal arguments: " x x'))))]
        (let [tag (sd/fresh-tag)]
          (-> (f (bun x x' tag))
              (sd/extract-tangent tag)))))))
@@ -1531,6 +1540,7 @@
 ;; flip outer args:
 (defn shift2 [cont]
   (fn [offset]
+    (prn "offset coming in!:" offset)
     (cont (fn [g]
             (fn [a] (g (g/+ a offset)))))))
 
@@ -1553,6 +1563,8 @@
 (defn cont2 [D-shift]
   (let [f-hat1 (D-shift 1)
         f-hat2 (D-shift 2)]
+    (prn f-hat1)
+    (prn (f-hat1 (f-hat2 exp)))
     ((f-hat1 (f-hat2 exp)) 2)))
 
 (testing "weird that you can use it twice."
