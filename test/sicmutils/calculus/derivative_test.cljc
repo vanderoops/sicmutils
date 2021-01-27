@@ -1426,3 +1426,147 @@
                     ((D (fn [x] (* x (* x y))))
                      (* y 3))))
                'x)))))))
+
+
+
+(require '[sicmutils.differential :as sd])
+
+;; This enables the paper version, with all replacements.
+(def ^:dynamic *version* :sam)
+;; can also be :paper-no-replacement
+
+(defn j* [f]
+  (fn call
+    ([x]
+     ;; NOTE: the new j* that gets allocated forces each call to the INTERNAL
+     ;; function to do the right thing. I think you ALWAYS have to force this
+     ;; behavior since you don't know what is coming down the pipe!
+     (if (f/function? x)
+       (call x (j* x))
+       (call x 1)))
+
+    ([x x']
+     (letfn [(bun [x x' tag]
+               (cond (and (f/function? x) (f/function? x'))
+                     ;; This is the case from the paper.
+                     (fn [y]
+                       ;; This is the version in the paper. NOTE - this has a
+                       ;; bug in it. If `y` is a dual, `x` and `x'` are both
+                       ;; going to act on all nested duals. So if you have a
+                       ;; nested dual number, you'll get tag confusion.
+                       ;;
+                       ;; you really want to force all nested numbers over to
+                       ;; x'.
+                       (condp = *version*
+                         :paper
+                         (let [fresh (sd/fresh-tag)]
+                           (-> (bun (x (sd/replace-tag y tag fresh))
+
+                                    ;; NOTE: This is where the bug is. It
+                                    ;; currently doesn't handle nested
+                                    ;; derivatives... at least in my
+                                    ;; implementation! Let's see if it
+                                    ;; reproduces.
+                                    (x' (sd/replace-tag y tag fresh))
+                                    tag)
+                               (sd/replace-tag fresh tag)))
+
+                         ;; same buggy behavior as the paper.
+                         :paper-no-replacement
+                         (bun (x y) (x' y) tag)
+
+                         ;; My rewrite. I think this is actually... more
+                         ;; correct, MAYBE, if you want to be able to handle
+                         ;; dual number inputs too? It definitely gets the right
+                         ;; result.
+                         ;;
+                         ;; TODO for GJS - if you do this, you need to use
+                         ;; letrec internally to override the OTHER x' if x is
+                         ;; already lifted.
+                         ;;
+                         ;; TODO this will not work as written for them since
+                         ;; they don't have function algebra. But it does get
+                         ;; the right result!
+                         #_((sd/lift-1 x x') #_call (if (f/function? y)
+                                                      (bun y (j* y) tag)
+                                                      (bun y 1 tag)))
+                         (let [f     x
+                               df:dx x'
+                               arg   (if (f/function? y)
+                                       (bun y (j* y) tag)
+                                       (bun y 1 tag))
+                               call  (fn call [x]
+                                       (if-not (sd/differential? x)
+                                         (f x)
+                                         (let [[px tx] (sd/primal-tangent-pair x)
+                                               fx      (call px)]
+                                           (if (and (v/number? tx) (v/zero? tx))
+                                             fx
+                                             (sd/d:+ fx (sd/d:* (df:dx px) tx))))))]
+                           (call arg))))
+
+                     ;; NOTE: Yet another place to be careful. Here you want to
+                     ;; treat x' as the sensitivity produced by x given its
+                     ;; argument.
+                     ;;
+                     ;; If you instead make the function right here,
+                     (and (f/function? x) (v/numerical? x'))
+                     (bun x (fn [_] x') tag)
+
+                     ;; same case as D.
+                     (and (v/numerical? x) (v/numerical? x'))
+                     (sd/bundle x x' tag)
+
+                     :else (u/illegal "Illegal arguments!")))]
+       (let [tag (sd/fresh-tag)]
+         (-> (f (bun x x' tag))
+             (sd/extract-tangent tag)))))))
+
+
+(defn shift1 [offset]
+  (fn [cont]
+    (cont (fn [g]
+            (fn [a] (g (g/+ a offset)))))))
+
+;; flip outer args:
+(defn shift2 [cont]
+  (fn [offset]
+    (cont (fn [g]
+            (fn [a] (g (g/+ a offset)))))))
+
+;; basic continuation:
+
+(defn cont [f-hat]
+  ((f-hat (f-hat exp)) 5))
+
+(testing "the nice behavior they have... a law?"
+  (is (= (* 2 (exp 11))
+         (((j* shift1) 3) cont)))
+
+  (is (= (* 2 (exp 11))
+         (((j* shift2) cont) 3))))
+
+(defn shift [offset]
+  (fn [g]
+    (fn [a] (g (g/+ a offset)))))
+
+(defn cont2 [D-shift]
+  (let [f-hat1 (D-shift 1)
+        f-hat2 (D-shift 2)]
+    ((f-hat1 (f-hat2 exp)) 2)))
+
+(testing "weird that you can use it twice."
+  (let [D-shift (j* shift)]
+    (binding [*version* :sam]
+      (is (= (exp 5)
+             (cont2 D-shift)))
+
+      (is (= (exp 5)
+             ((j* cont2) shift))))
+
+    (binding [*version* :paper]
+      (is (= (exp 5)
+             (cont2 D-shift)))
+
+      (is (= (* 2 (exp 5))
+             ((j* cont2) shift))))))

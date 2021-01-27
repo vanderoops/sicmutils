@@ -1183,7 +1183,7 @@
     (if-not (differential? x)
       (f x)
       (let [[px tx] (primal-tangent-pair x)
-            fx      (call px)]
+            fx      (f px)]
         (if (and (v/number? tx) (v/zero? tx))
           fx
           (d:+ fx (d:* (df:dx px) tx)))))))
