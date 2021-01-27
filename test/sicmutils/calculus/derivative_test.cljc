@@ -1428,11 +1428,10 @@
                'x)))))))
 
 
-
 (require '[sicmutils.differential :as sd])
 
 ;; This enables the paper version, with all replacements.
-(def ^:dynamic *version* :sam)
+(def ^:dynamic *version* :paper)
 ;; can also be :paper-no-replacement
 
 (defn j* [f]
@@ -1452,11 +1451,10 @@
                      (fn [y]
                        (if (= *version* :paper)
                          (bun (x y) (x' y) tag)
-                         (bun (x (sd/replace-tag y tag nil))
-                              (x' y)
-                              tag)))
+                         (let [y (sd/replace-tag y tag nil)]
+                           (bun (x y) (x' y) tag))))
 
-                     ;; This is new...
+                     ;; This is new!
                      (and (f/function? x) (v/numerical? x'))
                      (bun x (fn [_] x') tag)
 
@@ -1469,13 +1467,18 @@
          (-> (f (bun x x' tag))
              (sd/extract-tangent tag)))))))
 
-
+;; EXPLAIN what I think should be happening. Here is our continuation
+;; version; (D shift1) gives the derivative of a two-arg function wrt offset,
+;; and combos happens inside.
 (defn shift1 [offset]
   (fn [cont]
     (cont (fn [g]
             (fn [a] (g (g/+ a offset)))))))
 
-;; flip outer args:
+;; flip outer args. Now we have the derivative of a thing that wants to TAKE a
+;; continuation... and when you pass THIS the argument, it takes the derivative
+;; of the original thing with respect to the input you give it (3). So it's a
+;; way of pushing back arguments, pulling forward?
 (defn shift2 [cont]
   (fn [offset]
     (cont (fn [g]
@@ -1490,12 +1493,22 @@
   (is (= (* 2 (exp 11))
          (((j* shift1) 3) cont)))
 
-  (is (= (exp 11)
-         (((j* shift2) cont) 3))))
+  ;; this also makes sense...
+  (binding [*version* :paper]
+    (is (= (* 2 (exp 11))
+           (((j* shift2) cont) 3))))
 
+  ;; THIS does not make sense!
+  (binding [*version* :sam]
+    (is (= (exp 11)
+           (((j* shift2) cont) 3)))))
+
+;; now here is the same thing WITHOUT the continuation.
 (defn shift [offset]
   (fn [g]
     (fn [a] (g (g/+ a offset)))))
+
+;; This takes a D-shift eater and can call it multiple times.
 
 (defn cont2 [D-shift]
   (let [f-hat1 (D-shift 1)
@@ -1503,17 +1516,19 @@
     ((f-hat1 (f-hat2 exp)) 2)))
 
 (testing "weird that you can use it twice."
-  (let [D-shift (j* shift)]
-    (binding [*version* :sam]
-      (is (= (exp 5)
-             (cont2 D-shift)))
+  (binding [*version* :sam]
+    (is (= (exp 5)
+           (cont2 (j* shift)))
+        "If I pass a D-shift maker they should definitely not be able to talk.")
 
-      (is (= (exp 5)
-             ((j* cont2) shift))))
+    (is (= (exp 5)
+           ((j* cont2) shift))
+        "And in fact here they cannot."))
 
-    (binding [*version* :paper]
-      (is (= (exp 5)
-             (cont2 D-shift)))
+  (binding [*version* :paper]
+    (is (= (exp 5)
+           (cont2 (j* shift))))
 
-      (is (= (exp 5)
-             ((j* cont2) shift))))))
+    ;; But HERE they do talk!
+    (is (= (* 2 (exp 5))
+           ((j* cont2) shift)))))
