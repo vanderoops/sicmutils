@@ -109,10 +109,13 @@
   tagged with `fresh` will be remapped in the final result back to `tag`."
   [f tag]
   (-> (fn [& args]
-        (let [fresh (d/fresh-tag)]
-          (-> (apply f (map #(d/replace-tag % tag fresh) args))
-              (d/extract-tangent tag)
-              (d/replace-tag fresh tag))))
+        (if (d/tag-active? tag)
+          (let [fresh (d/fresh-tag)]
+            (-> (d/with-active-tag tag f (map #(d/replace-tag % tag fresh) args))
+                (d/extract-tangent tag)
+                (d/replace-tag fresh tag)))
+          (-> (d/with-active-tag tag f args)
+              (d/extract-tangent tag))))
       (f/with-arity (f/arity f))))
 
 ;; NOTE: that the tag-remapping that the docstring for `extract-tag-fn`
@@ -133,11 +136,14 @@
   - remap any tangent component in the result tagged with `fresh` back to `old`."
   [f old new]
   (-> (fn [& args]
-        (let [fresh (d/fresh-tag)
-              args  (map #(d/replace-tag % old fresh) args)]
+        (if (d/tag-active? old)
+          (let [fresh (d/fresh-tag)
+                args  (map #(d/replace-tag % old fresh) args)]
+            (-> (apply f args)
+                (d/replace-tag old new)
+                (d/replace-tag fresh old)))
           (-> (apply f args)
-              (d/replace-tag old new)
-              (d/replace-tag fresh old))))
+              (d/replace-tag old new))))
       (f/with-arity (f/arity f))))
 
 ;; ## Protocol Implementation

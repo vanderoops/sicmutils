@@ -585,43 +585,45 @@
 
   ;; There are 3 cases to consider when replacing some tag in a term, annotated
   ;; below:
-  (replace-tag [_ oldtag newtag]
-    (letfn [(process [term]
-              (let [tagv (tags term)]
-                (if-not (uv/contains? tagv oldtag)
-                  ;; if the term doesn't contain the old tag, ignore it.
-                  [term]
-                  (if (uv/contains? tagv newtag)
-                    ;; if the term _already contains_ the new tag
-                    ;; $\varepsilon_{new}$, then replacing $\varepsilon_1$
-                    ;; with a new instance of $\varepsilon_2$ would cause a
-                    ;; clash. Since $\varepsilon_2^2=0$, the term should be
-                    ;; removed.
-                    []
-                    ;; else, perform the replacement.
-                    [(make-term (-> tagv
-                                    (uv/disj oldtag)
-                                    (uv/conj newtag))
-                                (coefficient term))]))))]
-      (from-terms
-       (mapcat process terms))))
+  (replace-tag [this oldtag newtag]
+    (if (= oldtag newtag)
+      this
+      (letfn [(process [term]
+                (let [tagv (tags term)]
+                  (if-not (uv/contains? tagv oldtag)
+                    ;; if the term doesn't contain the old tag, ignore it.
+                    [term]
+                    (if (uv/contains? tagv newtag)
+                      ;; if the term _already contains_ the new tag
+                      ;; $\varepsilon_{new}$, then replacing $\varepsilon_1$
+                      ;; with a new instance of $\varepsilon_2$ would cause a
+                      ;; clash. Since $\varepsilon_2^2=0$, the term should be
+                      ;; removed.
+                      []
+                      (if (nil? newtag)
+                        ;; remove the tag.
+                        []
+                        ;; else, perform the replacement.
+                        [(make-term (-> tagv
+                                        (uv/disj oldtag)
+                                        (uv/conj newtag))
+                                    (coefficient term))])))))]
+        (from-terms
+         (mapcat process terms)))))
 
   ;; To extract the tangent (with respect to `tag`) from a differential, return
   ;; all terms that contain the tag (with the tag removed!) This can create
   ;; duplicate terms, so use [[from-terms]] to massage the result into
   ;; well-formedness again.
   (extract-tangent [this tag]
-    (do (prn this tag)
-        (if (tag-active? tag)
-          this
-          (from-terms
-           (mapcat (fn [term]
-                     (let [tagv (tags term)]
-                       (if (uv/contains? tagv tag)
-                         [(make-term (uv/disj tagv tag)
-                                     (coefficient term))]
-                         [])))
-                   terms)))))
+    (from-terms
+     (mapcat (fn [term]
+               (let [tagv (tags term)]
+                 (if (uv/contains? tagv tag)
+                   [(make-term (uv/disj tagv tag)
+                               (coefficient term))]
+                   [])))
+             terms)))
 
   v/Value
   (zero? [this]
