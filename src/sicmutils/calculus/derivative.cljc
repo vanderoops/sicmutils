@@ -146,7 +146,7 @@
 ;; make it back out without tangling with closure-captured `tag` instances that
 ;; some higher level might want.
 
-(defn- extract-tangent-fn
+(defn extract-tangent-fn
   "Returns a new function that composes a 'tag extraction' step with `f`. The
   returned fn will
 
