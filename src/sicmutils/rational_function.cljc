@@ -245,11 +245,14 @@
    'gcd g/gcd
    })
 
-(def operators-known (set (keys operator-table)))           ;; XXX
+(def operators-known
+  (u/keyset operator-table))
 
 (deftype RationalFunctionAnalyzer [polynomial-analyzer]
   a/ICanonicalize
-  (expression-> [this expr cont] (a/expression-> this expr cont compare))
+  (expression-> [this expr cont]
+    (a/expression-> this expr cont compare))
+
   (expression-> [this expr cont v-compare]
     ;; Convert an expression into Rational Function canonical form. The
     ;; expression should be an unwrapped expression, i.e., not an instance
@@ -260,11 +263,14 @@
     ;; factored out by an expression analyzer before we get here. The
     ;; result is a RationalFunction object representing the structure of
     ;; the input over the unknowns."
-    (let [expression-vars (sort v-compare (set/difference (x/variables-in expr) operators-known))
+    (let [expression-vars (sort v-compare
+                                (set/difference (x/variables-in expr)
+                                                operators-known))
           arity    (count expression-vars)
           sym->var (zipmap expression-vars (a/new-variables this arity))
           expr'    (x/evaluate expr sym->var operator-table)]
       (cont expr' expression-vars)))
+
   (->expression [_ r vars]
     ;; This is the output stage of Rational Function canonical form simplification.
     ;; The input is a RationalFunction, and the output is an expression
@@ -280,8 +286,13 @@
           (a/->expression polynomial-analyzer r vars)
 
           :else r))
-  (known-operation? [_ o] (operators-known o))
-  (new-variables [_ n] (a/new-variables polynomial-analyzer n)))
+
+  (known-operation? [_ o]
+    (boolean
+     (operators-known o)))
+
+  (new-variables [_ n]
+    (a/new-variables polynomial-analyzer n)))
 
 ;; ## Generic Method Implementations
 

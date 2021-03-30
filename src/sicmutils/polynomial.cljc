@@ -48,7 +48,7 @@
 (defn ^:private monomial-degree
   "Compute the degree of a monomial. This is just the sum of the exponents."
   [m]
-  (reduce g/+ m))
+  (apply g/+ m))
 
 ;; ## Monomial Orderings
 ;;
@@ -106,7 +106,8 @@
       (make-constant arity one)))
 
   (identity-like [_]
-    (assert (v/one? arity) "identity-like unsupported on non-monomials!")
+    (assert (v/one? arity)
+            "identity-like unsupported on non-monomials!")
     (let [one (if-let [pair (first xs->c)]
                 (v/one-like (coefficient pair))
                 1)]

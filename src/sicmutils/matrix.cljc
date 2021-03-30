@@ -537,9 +537,9 @@
   (when (not= (num-cols m) (count u))
     (u/illegal "matrix and tuple incompatible for multiplication"))
   (s/up* (map (fn [i]
-                (reduce g/+ (for [k (range (num-cols m))]
-                              (g/* (core-get-in m [i k])
-                                   (get u k)))))
+                (apply g/+ (for [k (range (num-cols m))]
+                             (g/* (core-get-in m [i k])
+                                  (get u k)))))
               (range (num-rows m)))))
 
 (defn- d*M
@@ -550,10 +550,10 @@
     (u/illegal "matrix and tuple incompatible for multiplication"))
   (s/down*
    (map (fn [i]
-          (reduce g/+ (for [k (range (num-rows m))]
-                        (g/* (get d k)
-                             (core-get-in m [i k])
-                             ))))
+          (apply g/+ (for [k (range (num-rows m))]
+                       (g/* (get d k)
+                            (core-get-in m [i k])
+                            ))))
         (range (num-cols m)))))
 
 (def ^{:dynamic true
@@ -729,11 +729,11 @@
     2 (let [[[a b] [c d]] m]
         (g/- (g/* a d)
              (g/* b c)))
-    (reduce g/+ (map g/*
-                     (cycle [1 -1])
-                     (nth m 0)
-                     (for [i (range (num-rows m))]
-                       (determinant (without m 0 i)))))))
+    (apply g/+ (map g/*
+                    (cycle [1 -1])
+                    (nth m 0)
+                    (for [i (range (num-rows m))]
+                      (determinant (without m 0 i)))))))
 
 (defn cofactors
   "Returns the matrix of cofactors of the supplied square matrix `m`."
@@ -759,7 +759,7 @@
       0 m
       1 (->Matrix 1 1 [[(g/invert (core-get-in m [0 0]))]])
       (let [C (cofactors m)
-            Δ (reduce g/+ (map g/* (nth m 0) (nth C 0)))]
+            Δ (apply g/+ (map g/* (nth m 0) (nth C 0)))]
         (fmap #(g/divide % Δ)
               (transpose C))))))
 
