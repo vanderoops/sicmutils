@@ -2,6 +2,10 @@
 
 ## [unreleased]
 
+- new PR:
+
+  - added ability to do incremental simplification in numsymb
+
 - From #338:
 
   - `sicmutils.fdg.bianchi-test` verifies the Bianchi identities; this was a

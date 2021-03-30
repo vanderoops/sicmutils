@@ -28,6 +28,8 @@
             [sicmutils.value :as v]
             [sicmutils.util :as u]))
 
+(def ^:dynamic *incremental-simplifier* nil)
+
 (def operator first)
 (def operands rest)
 
