@@ -33,7 +33,8 @@
   an expression with respect to an analyzer is therefore effected by a
   round-trip to and from the canonical form."
   (:require [sicmutils.expression :as x]
-            [sicmutils.numsymb :as sym]))
+            [sicmutils.numsymb :as sym]
+            [sicmutils.value :as v]))
 
 (defn- make-vcompare
   "Returns
@@ -94,61 +95,127 @@
   [backend symbol-generator]
   (let [ref #?(:clj ref :cljs atom)
         alter #?(:clj alter :cljs swap!)
+        ref-set #?(:clj ref-set :cljs reset!)
         expr->var (ref {})
-        var->expr (ref {})]
-    (fn [expr]
-      (let [vless? (make-vcompare (x/variables-in expr))]
-        (letfn [(analyze [expr]
-                  (if (and (sequential? expr)
-                           (not (= (first expr) 'quote)))
-                    (let [analyzed-expr (map analyze expr)]
-                      (if (and (known-operation? backend (sym/operator analyzed-expr))
-                               (or (not (= 'expt (sym/operator analyzed-expr)))
-                                   (integer? (second (sym/operands analyzed-expr)))))
-                        analyzed-expr
-                        (if-let [existing-expr (@expr->var analyzed-expr)]
-                          existing-expr
-                          (new-kernels analyzed-expr))))
-                    expr))
-                (new-kernels [expr]
-                  ;; use doall to force the variable-binding side effects of
-                  ;; base-simplify
-                  (let [simplified-expr (doall (map base-simplify expr))]
-                    (if-let [v (sym/symbolic-operator (sym/operator simplified-expr))]
-                      (let [w (apply v (sym/operands simplified-expr))]
-                        (if (and (sequential? w)
-                                 (= (sym/operator w) (sym/operator simplified-expr)))
-                          (add-symbols! w)
-                          (analyze w)))
-                      (add-symbols! simplified-expr))))
+        var->expr (ref {})
+        vless-fn  (atom compare)]
+    (letfn [(vless? [v1 v2]
+              (@vless-fn v1 v2))
 
-                (add-symbols! [expr]
-                  (add-symbol!
-                   ;; FORCE the side effect of binding all symbols.
-                   (doall (map add-symbol! expr))))
+            (unquoted-list? [expr]
+              (and (sequential? expr)
+                   (not (= (first expr) 'quote))))
 
-                (add-symbol! [expr]
-                  (if (and (sequential? expr)
-                           (not (= (first expr) 'quote)))
-                    ;; in a transaction, probe and maybe update the expr->var->expr maps
-                    (#?(:clj dosync :cljs identity)
-                     (if-let [existing-expr (@expr->var expr)]
-                       existing-expr
-                       (let [var (symbol-generator)]
-                         (alter expr->var assoc expr var)
-                         (alter var->expr assoc var expr)
-                         var)))
-                    expr))
+            ;; Prepare for new analysis
+            (new-analysis! []
+              (reset! vless-fn compare)
+              (#?(:clj dosync :cljs identity)
+               (ref-set expr->var {})
+               (ref-set var->expr {}))
+              nil)
 
-                (backsubstitute [expr]
-                  (cond (sequential? expr) (map backsubstitute expr)
-                        (symbol? expr) (if-let [w (@var->expr expr)]
+            (ianalyze [expr]
+              (if (unquoted-list? expr)
+                (let [analyzed-expr (doall (map ianalyze expr))]
+                  (if (and (known-operation? backend (sym/operator analyzed-expr))
+                           (or (not (sym/expt? analyzed-expr))
+                               (v/integral?
+                                (second
+                                 (sym/operands analyzed-expr)))))
+                    analyzed-expr
+                    (if-let [existing-expr (@expr->var analyzed-expr)]
+                      existing-expr
+                      (new-kernels analyzed-expr))))
+                expr))
+
+            (analyze [expr]
+              (let [vcompare (make-vcompare (x/variables-in expr))]
+                (reset! vless-fn vcompare))
+              (ianalyze expr))
+
+
+            ;; NOTE: use `doall` to force the variable-binding side effects
+            ;; of `base-simplify`
+            (new-kernels [expr]
+              (let [simplified-expr (doall (map base-simplify expr))
+                    op (sym/operator simplified-expr)]
+                (if-let [v (sym/symbolic-operator op)]
+                  (let [w (apply v (sym/operands simplified-expr))]
+                    (if (and (sequential? w)
+                             (= (sym/operator w) op))
+                      (add-symbols! w)
+                      (ianalyze w)))
+                  (add-symbols! simplified-expr))))
+
+            (add-symbol! [expr]
+              (if (unquoted-list? expr)
+                ;; in a transaction, probe and maybe update the
+                ;; expr->var->expr maps
+                (#?(:clj dosync :cljs identity)
+                 (if-let [existing-expr (@expr->var expr)]
+                   existing-expr
+                   (let [var (symbol-generator)]
+                     (alter expr->var assoc expr var)
+                     (alter var->expr assoc var expr)
+                     var)))
+                expr))
+
+            (add-symbols! [expr]
+              ;; NOTE: FORCE the side effect of binding all symbols.
+              (let [new (doall (map add-symbol! expr))]
+                (add-symbol! new)))
+
+            (backsubstitute [expr]
+              (cond (sequential? expr) (doall (map backsubstitute expr))
+                    (symbol? expr)     (if-let [w (@var->expr expr)]
                                          (backsubstitute w)
                                          expr)
-                        :else expr))
-                (base-simplify [expr]
-                  (expression-> backend expr #(->expression backend %1 %2) vless?))]
-          (-> expr analyze base-simplify backsubstitute))))))
+                    :else expr))
+
+            (base-simplify [expr]
+              (if (unquoted-list? expr)
+                (expression-> backend
+                              expr
+                              #(->expression backend %1 %2)
+                              vless?)
+                expr))
+
+            (analyze-expression [expr]
+              (binding [sym/*incremental-simplifier* false]
+                (base-simplify
+                 (analyze expr))))
+
+            ;; Simplify relative to existing tables
+            (simplify-expression [expr]
+              (backsubstitute
+               (analyze-expression expr)))
+
+            ;; Default simplifier
+            (simplify [expr]
+              (new-analysis!)
+              (simplify-expression expr))]
+
+      {:simplify simplify
+       :simplify-expression simplify-expression
+       :initializer new-analysis!
+       :analyze-expression analyze-expression
+       :get-var->expr (fn [] @var->expr)
+       :get-expr->var (fn [] @expr->var)})))
+
+(defn default-simplifier [analyzer]
+  (:simplify analyzer))
+
+(defn expression-simplifier [analyzer]
+  (:simplify-expression analyzer))
+
+(defn initializer [analyzer]
+  (:initializer analyzer))
+
+(defn expression-analyzer [analyzer]
+  (:analyze-expression analyzer))
+
+(defn auxiliary-variable-fetcher [analyzer]
+  (:get-var->expr analyzer))
 
 (defn monotonic-symbol-generator
   "Returns a function which generates a sequence of symbols with the given

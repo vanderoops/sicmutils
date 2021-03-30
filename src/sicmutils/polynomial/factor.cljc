@@ -29,7 +29,7 @@
             [sicmutils.polynomial.gcd :refer [gcd gcd-seq]]
             [taoensso.timbre :as log]))
 
-(defn split
+(defn split-polynomial
   "We're not entirely certain what this algorithm does, but it would be nice
   to know."
   [p]
@@ -54,24 +54,30 @@
                  new-s
                  new-m))))))
 
-(defn actual-factors
-  [factors]
+(defn actual-factors [factors]
   (let [expt (sym/symbolic-operator 'expt)]
-    (filter (complement v/one?)
+    (filter (fn [f]
+              (or (not (v/number? f))
+                  (not (v/one? f))))
             (cons (first factors)
-                  (map-indexed #(expt %2 (+ %1 1))
-                               (next factors))))))
+                  (map-indexed (fn [i f]
+                                 (expt f (+ i 1)))
+                               (rest factors))))))
 
 (defn factor-polynomial-expression
-  [simplifier analyzer p]
+  [simplifier analyzer P]
   (a/expression->
    analyzer
-   (x/expression-of p)
+   (x/expression-of P)
    (fn [p v]
      (map (fn [factor]
             (simplifier
              (a/->expression analyzer factor v)))
-          (split p)))))
+          (split-polynomial P)))))
+
+(defn split-polynomial->expression [P]
+  (let [factors (factor-polynomial-expression P)]
+    (cons '* (actual-factors factors))))
 
 (defn- flatten-product
   "Construct a list with all the top-level products in args spliced
@@ -85,14 +91,16 @@
 (defn ->factors
   "Recursive generalization. [Rather terse comment. --Ed.]"
   [p poly-> v]
-  (let [factors (map #(poly-> % v) (split p))
+  (let [factors (map #(poly-> % v) (split-polynomial p))
         ff (actual-factors factors)]
     (condp = (count ff)
       0 1
       1 (first ff)
       (cons '* (flatten-product ff)))))
 
-(def factor
+;; TODO seems like this is actually poly:factor-analyzer.
+
+(def ^:no-doc factor-analyzer
   (let [poly-analyzer (poly/->PolynomialAnalyzer)
         poly-> (partial a/->expression poly-analyzer)]
     (a/make-analyzer
@@ -105,11 +113,19 @@
          (a/known-operation? poly-analyzer o)))
      (a/monotonic-symbol-generator "-f-"))))
 
+(def factor
+  (a/default-simplifier factor-analyzer))
+
+;; TODO assumptions are missing!
+
 (defn ^:private assume!
   [thing context]
-  (log/warn (format "Assuming %s in %s" thing context)))
+  (log/warn
+   (format "Assuming %s in %s" thing context)))
 
-(defn- process-sqrt [expr]
+(defn- process-sqrt
+  "NOTE: Comes from split-poly.scm."
+  [expr]
   (let [fact-exp (factor (first (sym/operands expr)))
         expt     (sym/symbolic-operator 'expt)
         *        (sym/symbolic-operator '*)]

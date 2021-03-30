@@ -422,7 +422,8 @@
   (let [new-analyzer (fn [] (a/make-analyzer
                             (p/->PolynomialAnalyzer)
                             (a/monotonic-symbol-generator "k%08d")))
-        A #((new-analyzer) %)]
+        A #((a/default-simplifier
+             (new-analyzer)) %)]
     (is (= '(+ x 1) (A '(+ 1 x))))
     (is (= '(+ x 1) (A '[+ 1 x])))
     (is (= '(* y (sin y) (cos (+ (expt (sin y) 4) (* 2 (sin y)) 1)))

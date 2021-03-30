@@ -43,30 +43,41 @@
            (log/warn (str "simplifier timed out: must have been a complicated expression"))
            x))))
 
-(defn ^:private poly-analyzer
+(defn- poly-analyzer
   "An analyzer capable of simplifying sums and products, but unable to
-  cancel across the fraction bar"
+  cancel across the fraction bar.
+
+  NOTE: I think this is fpf:analyzer in the scheme code."
   []
   (a/make-analyzer (poly/->PolynomialAnalyzer)
                    (a/monotonic-symbol-generator "-s-")))
 
-(defn ^:private rational-function-analyzer
+(defn- rational-function-analyzer
   "An analyzer capable of simplifying expressions built out of rational
-  functions."
+  functions.
+
+  NOTE: This is rcf:analyzer."
   []
   (a/make-analyzer (rf/->RationalFunctionAnalyzer (poly/->PolynomialAnalyzer))
                    (a/monotonic-symbol-generator "-r-")))
 
 (def ^:dynamic *rf-analyzer*
-  (memoize (unless-timeout (rational-function-analyzer))))
+  (memoize
+   (unless-timeout
+    (a/expression-simplifier
+     (rational-function-analyzer)))))
 
 (def ^:dynamic *poly-analyzer*
-  (memoize (poly-analyzer)))
+  (memoize
+   (a/expression-simplifier
+    (poly-analyzer))))
 
 (defn hermetic-simplify-fixture
   [f]
-  (binding [*rf-analyzer* (rational-function-analyzer)
-            *poly-analyzer* (poly-analyzer)]
+  (binding [*rf-analyzer* (a/expression-simplifier
+                           (rational-function-analyzer))
+            *poly-analyzer* (a/expression-simplifier
+                             (poly-analyzer))]
     (f)))
 
 (def ^:private simplify-and-flatten #'*rf-analyzer*)
