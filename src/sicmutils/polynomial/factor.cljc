@@ -26,15 +26,17 @@
             [sicmutils.expression :as x]
             [sicmutils.numsymb :as sym]
             [sicmutils.polynomial :as poly]
-            [sicmutils.polynomial.gcd :refer [gcd gcd-seq]]
+            [sicmutils.polynomial.gcd :refer [gcd gcd-Dp]]
             [taoensso.timbre :as log]))
 
 (defn split-polynomial
-  "We're not entirely certain what this algorithm does, but it would be nice
-  to know."
+  "Note: Split a polynomial into factors of various multiplicities."
   [p]
-  (let [answer (fn [tracker const]
-                 (into [const] (rest tracker)))]
+  (letfn [(answer [[x :as tracker] const]
+            (if (v/number? x)
+              (into [x] (conj (pop tracker) 1))
+              (into [const] (rest tracker))))]
+    ;; TODO these should switch to poly:zero and friends.
     (loop [m (v/zero-like p)
            h p
            tracker []
@@ -42,17 +44,39 @@
            old-m (v/one-like p)]
       (if (v/one? m)
         (answer tracker h)
-        (let [gg    (gcd-seq (poly/partial-derivatives h))
+        (let [gg    (gcd-Dp h)
+              ;; TODO: g/exact-divide => poly:quotient
               new-s (g/exact-divide h (gcd h gg))
               new-m (gcd gg new-s)
               facts (g/exact-divide old-s new-s)
+
+              ;; facts gets all the factors that were completely
+	            ;; removed last step, i.e. all those that were to
+	            ;; the 1 or 2 power.  The first loop through will
+	            ;; get a totally wrong facts, but its gcd with the
+	            ;; initial old-m=1 will be 1, so it won't result in
+	            ;; incorrect doublefacts or singlefacts.
+
               doublefacts (gcd facts old-m)
-              singlefacts (g/exact-divide new-s new-m)]
+              ;; doublefacts gets all the factors which were to
+	            ;; the power x>1, x<=2, (ergo x=2), in the last step.
+
+              singlefacts (g/exact-divide new-s new-m)
+              ;; takes out p = all factors only to the 1st power.
+              ]
           (recur new-m
+                 ;; the followinghas all factors to the 1 or 2 power
+	               ;; completely removed, others now to the power-2.
+                 ;; TODO: poly:*, keep it cheap
                  (g/exact-divide h (g/* new-m new-s))
+
+                 ;; tracker of the form
+	               ;;  h(vi) = (* (exponent (get tracker k) k))
                  (conj tracker doublefacts singlefacts)
                  new-s
                  new-m))))))
+
+;; ### Reconstructions
 
 (defn actual-factors [factors]
   (let [expt (sym/symbolic-operator 'expt)]
@@ -73,7 +97,7 @@
      (map (fn [factor]
             (simplifier
              (a/->expression analyzer factor v)))
-          (split-polynomial P)))))
+          (split-polynomial p)))))
 
 (defn split-polynomial->expression [P]
   (let [factors (factor-polynomial-expression P)]
@@ -83,22 +107,27 @@
   "Construct a list with all the top-level products in args spliced
   in; other items left wrapped."
   [factors]
-  (mapcat #(if (sym/product? %)
-             (sym/operands %)
-             (list %))
+  (mapcat (fn [factor]
+            (if (sym/product? factor)
+              (sym/operands factor)
+              [factor]))
           factors))
 
 (defn ->factors
-  "Recursive generalization. [Rather terse comment. --Ed.]"
+  "Recursive generalization. [Rather terse comment. --Ed.]
+
+  NOTE: this is from split-poly.scm, `pcf:->factors`.
+
+  poly-> is pcf:->expression."
   [p poly-> v]
-  (let [factors (map #(poly-> % v) (split-polynomial p))
+  (let [factors (map (fn [factor]
+                       (poly-> factor v))
+                     (split-polynomial p))
         ff (actual-factors factors)]
     (condp = (count ff)
       0 1
       1 (first ff)
       (cons '* (flatten-product ff)))))
-
-;; TODO seems like this is actually poly:factor-analyzer.
 
 (def ^:no-doc factor-analyzer
   (let [poly-analyzer (poly/->PolynomialAnalyzer)
@@ -118,8 +147,7 @@
 
 ;; TODO assumptions are missing!
 
-(defn ^:private assume!
-  [thing context]
+(defn- assume! [thing context]
   (log/warn
    (format "Assuming %s in %s" thing context)))
 

@@ -293,10 +293,27 @@
 
 (defmethod g/gcd [::p/polynomial ::p/polynomial] [u v] (gcd u v))
 
-(def gcd-seq
+(def ^:private gcd-seq
   "Compute the GCD of a sequence of polynomials (we take care to
   break early if the gcd of an initial segment is unity)"
   (reduce-until v/one? gcd))
+
+(defn gcd-Dp
+  "Compute the gcd of the all the partial derivatives of p."
+  [p]
+  (gcd-seq
+   (p/partial-derivatives p))
+
+  ;; TODO this is the original one from split-poly.scm.
+  #_(let [n (f/arity p)]
+      (if (zero? n)
+	      poly:one
+	      (loop [i   1
+               ans (poly:partial-derivative p [0])]
+	        (if (or (= i n) (v/one? ans))
+	          ans
+	          (recur (inc i)
+		               (gcd (poly:partial-derivative p [i]) ans)))))))
 
 ;; several observations. many of the gcds we find when attempting the
 ;; troublesome GCD are the case where we have two monomials. This can be done

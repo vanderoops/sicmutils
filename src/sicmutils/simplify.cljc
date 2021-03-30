@@ -80,7 +80,14 @@
                              (poly-analyzer))]
     (f)))
 
-(def ^:private simplify-and-flatten #'*rf-analyzer*)
+(def ^:private simplify-and-flatten
+  #'*rf-analyzer*)
+
+(comment
+  ;; TODO - this is what is going on in the scmutils codebase.
+  (def ^:private simplify-and-flatten
+    (comp #'*poly-analyzer*
+          #'*rf-analyzer*)))
 
 (defn ^:private simplify-until-stable
   [rule-simplify canonicalize]

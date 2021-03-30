@@ -23,6 +23,7 @@
             [clojure.string :as cs]
             [sicmutils.expression.analyze :as a]
             [sicmutils.expression :as x]
+            [sicmutils.function :as f]
             [sicmutils.generic :as g]
             [sicmutils.numsymb :as sym]
             [sicmutils.util :as u]
@@ -34,6 +35,9 @@
 
 (defn coefficient [term]
   (nth term 1 0))
+
+(defn base? [p]
+  (v/number? p))
 
 ;; ## Monomials
 ;;
@@ -115,6 +119,9 @@
   (exact? [_] false)
   (freeze [_] `(~'polynomial ~arity ~xs->c))
   (kind [_] ::polynomial)
+
+  f/IArity
+  (arity [_] arity)
 
   #?@(:clj
       [Object
@@ -437,19 +444,21 @@
 (defn partial-derivative
   "The partial derivative of the polynomial with respect to the
   i-th indeterminate."
-  [^Polynomial p i]
-  (make (.-arity p)
-        (for [[xs c] (.-xs->c p)
-              :let [xi (xs i)]
-              :when (not= 0 xi)]
-          [(update xs i dec) (g/* xi c)])))
+  [p i]
+  (if (base? p)
+    0
+    (make (.-arity ^Polynomial p)
+          (for [[xs c] (.-xs->c ^Polynomial p)
+                :let [xi (xs i)]
+                :when (not= 0 xi)]
+            [(update xs i dec) (g/* xi c)]))))
 
 (defn partial-derivatives
   "The sequence of partial derivatives of p with respect to each
   indeterminate"
   [p]
   (if (v/number? p)
-    [1]
+    [0]
     (for [i (range (.-arity ^Polynomial p))]
       (partial-derivative p i))))
 
