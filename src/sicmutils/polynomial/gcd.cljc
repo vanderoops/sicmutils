@@ -32,9 +32,15 @@
      (:import (sicmutils.polynomial Polynomial))))
 
 (def ^:dynamic *poly-gcd-time-limit* [1000 :millis])
+(def ^:dynamic *clock* nil)
+(def ^:dynamic *euclid-breakpoint-arity* 3)
+(def ^:dynamic *gcd-cut-losses* nil)
+
 (def ^:dynamic *poly-gcd-cache-enable* true)
 (def ^:dynamic *poly-gcd-debug* false)
+
 (def ^:private ^:dynamic *poly-gcd-bail-out* (fn []))
+
 (def ^:private gcd-memo (atom {}))
 (def ^:private gcd-cache-hit (atom 0))
 (def ^:private gcd-cache-miss (atom 0))
@@ -245,51 +251,93 @@
         (dbg level "<-" g)
         g))))
 
-(defn ^:private maybe-bail-out
+(defn- maybe-bail-out
   "Returns a function that checks if clock has been running longer than timeout
   and if so throws an exception after logging the event. Timeout should be of
   the form [number Keyword], where keyword is one of the supported units from
   sicmutils.util.stopwatch."
-  [description clock timeout]
+  [description clock [ticks units :as timeout]]
   (fn []
-    (when (> (us/elapsed clock (second timeout))
-             (first timeout))
+    (when (> (us/elapsed clock units)
+             ticks)
       (let [s (format "Timed out: %s after %s" description (us/repr clock))]
         (log/warn s)
         (u/timeout-ex s)))))
 
+;; TODO move these somewhere better!
+(defn time-expired? []
+  (and *clock*
+       (let [[ticks units] *poly-gcd-time-limit*]
+         (> (us/elapsed *clock* units) ticks))))
+
+(defn with-limited-time [timeout thunk]
+  (binding [*poly-gcd-time-limit* timeout
+            *clock* (us/stopwatch)]
+    (thunk)))
+
+(declare sparse-base-content poly->sparse
+         gcd-sparse gcd-classical)
+
+(def poly:one 1)
+
+(defn gcd-sparse
+  "TODO get this filled in."
+  [u v]
+  false)
+
+(defn gcd-classical [u v]
+  (let [clock (us/stopwatch)]
+    (binding [*poly-gcd-bail-out* (maybe-bail-out "polynomial GCD" clock *poly-gcd-time-limit*)]
+      (g/abs
+       (gcd-continuation-chain u v
+                               with-trivial-constant-gcd-check
+                               with-optimized-variable-order
+                               #(inner-gcd 0 %1 %2))))))
+
+;; TODO: comes from poly:gcd-dispatch
 (defn gcd
-  "Knuth's algorithm 4.6.1E.
-  This can take a long time, unfortunately, and so we bail if it seems to
-  be taking too long."
   ([] 0)
   ([u] u)
   ([u v]
-   (cond (v/zero? u)   (g/abs v)
-         (v/zero? v)   (g/abs u)
-         (v/one? u)    u
-         (v/one? v)    v
-         (v/number? u) (if (v/number? v)
-                         (g/gcd u v)
-                         (u/illegal "Can't yet handle GCD of numbers and polynomial."))
-         (v/number? v) (u/illegal "Can't yet handle GCD of numbers and polynomial.")
+   (cond (v/zero? u) (g/abs v)
+         (v/zero? v) (g/abs u)
+         (v/one? u)  u
+         (v/one? v)  v
+         (= u v)     u
+         (p/base? u) (if (p/base? v)
+                       (g/gcd u v)
+                       (g/gcd u (sparse-base-content (poly->sparse v))))
+         (p/base? v) (g/gcd (sparse-base-content (poly->sparse u)) v)
+
          :else
-         (let [clock (us/stopwatch)
-               arity (p/check-same-arity u v)]
-           (cond
-             (not (and (every? v/integral? (p/coefficients u))
-                       (every? v/integral? (p/coefficients v))))
-             (v/one-like u)
-             (= u v) u
-             (= arity 1) (g/abs (gcd1 u v))
-             :else
-             (binding [*poly-gcd-bail-out*
-                       (maybe-bail-out "polynomial GCD" clock *poly-gcd-time-limit*)]
-               (g/abs
-                (gcd-continuation-chain u v
-                                        with-trivial-constant-gcd-check
-                                        with-optimized-variable-order
-                                        #(inner-gcd 0 %1 %2)))))))))
+         (let [arity (p/check-same-arity u v)]
+           (cond (not (and (every? v/integral? (p/coefficients u))
+                           (every? v/integral? (p/coefficients v))))
+                 (v/one-like u)
+
+                 (= arity 1) (g/abs (gcd1 u v))
+
+                 :else
+                 (or (with-limited-time [1.0 :seconds]
+		                   (fn [] (gcd-sparse u v)))
+
+	                   (with-limited-time [1.0 :seconds]
+		                   (fn [] (gcd-classical u v)))
+
+	                   (with-limited-time [100.0 :seconds]
+		                   (fn [] (gcd-sparse u v)))
+
+	                   (and (< arity *euclid-breakpoint-arity*)
+		                      (with-limited-time [100.0 :seconds]
+		                        (fn [] (gcd-classical u v))))
+
+	                   (gcd-sparse u v)
+
+	                   (if *gcd-cut-losses*
+		                   (or (with-limited-time *gcd-cut-losses*
+			                       (fn [] (gcd-classical u v)))
+		                       poly:one)
+		                   (gcd-classical u v))))))))
 
 (defmethod g/gcd [::p/polynomial ::p/polynomial] [u v] (gcd u v))
 

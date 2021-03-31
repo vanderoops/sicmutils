@@ -195,26 +195,28 @@
 (defn ^:private lead-term
   "Return the leading (i.e., highest degree) term of the polynomial
   p. The return value is [exponents coefficient]."
-  [^Polynomial p]
-  (peek (.-xs->c p)))
-
-(defn degree
   [p]
+  (peek (.-xs->c ^Polynomial p)))
+
+(defn degree [p]
   (if (v/zero? p)
     -1
-    (->> p lead-term exponents (reduce g/+))))
+    (->> (lead-term p)
+         (exponents)
+         (apply g/+))))
 
 (defn monomial?
-  [^Polynomial p]
-  (= 1 (count (.-xs->c p))))
+  [p]
+  (= 1 (count (.-xs->c ^Polynomial p))))
 
 (defn coefficients
-  [^Polynomial p]
-  (map coefficient (.-xs->c p)))
+  [p]
+  (map coefficient
+       (.-xs->c ^Polynomial p)))
 
 (defn check-same-arity [p q]
-  (let [ap (.-arity p)
-        aq (.-arity q)]
+  (let [ap (.-arity ^Polynomial p)
+        aq (.-arity ^Polynomial q)]
     (if (= ap aq)
       ap
       (u/arithmetic-ex "mismatched polynomial arity"))))

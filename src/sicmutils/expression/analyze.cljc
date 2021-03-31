@@ -36,6 +36,38 @@
             [sicmutils.numsymb :as sym]
             [sicmutils.value :as v]))
 
+;; ## General Recursive Simplifier Maker
+;;
+;; Given a set of operations, this procedure makes a recursive simplifier that
+;;  simplifies expressions involving these operations, treating other
+;;  combinations as atomic.
+;;
+;; To break an expression up into manipulable and nonmanipulable parts with
+;; respect to a set of algebraic operators. This is done by the introduction of
+;; auxiliary variables.
+;;
+;; For example, the equation
+;;    I = Is (exp((V2 - V3)/Vt) - 1) ; I, V2, V3
+;; can be broken into three equations
+;;    I + Is = Is*X                  ; I, X
+;;    V2/Vt - V3/Vt = Y              ; V2, V3, Y
+;;    X = (exp Y)                    ; X, Y
+;;
+;; where X and Y are new variables. The first two parts contain only addition,
+;; subtraction, multiplication, and division and the third is not expressible in
+;; terms of those operations.
+;;
+;;
+;; ### Implementation
+;;
+;; Exponential expressions with non-integer exponents must become
+;; kernels, because they cannot become polynomial exponentials.
+
+(def ^:dynamic *inhibit-expt-simplify*
+  true)
+
+;; ### Utilities
+
 (defn- make-vcompare
   "Returns
   a [Comparator](https://docs.oracle.com/javase/8/docs/api/java/util/Comparator.html)
@@ -51,9 +83,34 @@
   [var-set]
   (fn [v w]
     (cond
-      (var-set v) (if (var-set w) (compare v w) -1)
+      (var-set v) (if (var-set w)
+                    (compare v w)
+                    -1)
       (var-set w) 1
       :else (compare v w))))
+
+(defn monotonic-symbol-generator
+  "Returns a function which generates a sequence of symbols with the given
+  `prefix` with the property that later symbols will sort after earlier symbols.
+
+  This is important for the stability of the simplifier. (If we just used
+  `clojure.core/gensym`, then a temporary symbol like `G__1000` will sort
+  earlier than `G__999`. This will trigger errors at unpredictable times,
+  whenever `clojure.core/gensym` returns two symbols that cross an
+  order-of-magnitude boundary.)"
+  [prefix]
+  (let [count (atom -1)]
+    (fn [] (symbol
+           #?(:clj
+              (format "%s%016x" prefix (swap! count inc))
+
+              :cljs
+              (let [i (swap! count inc)
+                    suffix (-> (.toString i 16)
+                               (.padStart 16 "0"))]
+                (str prefix suffix)))))))
+
+;; TODO note this, this is a new thing!
 
 (defprotocol ICanonicalize
   "[[ICanonicalize]] captures the methods exposed by a SICMUtils analyzer backend."
@@ -118,10 +175,11 @@
               (if (unquoted-list? expr)
                 (let [analyzed-expr (doall (map ianalyze expr))]
                   (if (and (known-operation? backend (sym/operator analyzed-expr))
-                           (or (not (sym/expt? analyzed-expr))
-                               (v/integral?
-                                (second
-                                 (sym/operands analyzed-expr)))))
+                           (not (and *inhibit-expt-simplify*
+                                     (sym/expt? analyzed-expr)
+                                     (not (v/integral?
+                                           (second
+                                            (sym/operands analyzed-expr)))))))
                     analyzed-expr
                     (if-let [existing-expr (@expr->var analyzed-expr)]
                       existing-expr
@@ -202,6 +260,8 @@
        :get-var->expr (fn [] @var->expr)
        :get-expr->var (fn [] @expr->var)})))
 
+;; These functions allow you to take different pieces of the analyzer apart.
+
 (defn default-simplifier [analyzer]
   (:simplify analyzer))
 
@@ -216,24 +276,3 @@
 
 (defn auxiliary-variable-fetcher [analyzer]
   (:get-var->expr analyzer))
-
-(defn monotonic-symbol-generator
-  "Returns a function which generates a sequence of symbols with the given
-  `prefix` with the property that later symbols will sort after earlier symbols.
-
-  This is important for the stability of the simplifier. (If we just used
-  `clojure.core/gensym`, then a temporary symbol like `G__1000` will sort
-  earlier than `G__999`. This will trigger errors at unpredictable times,
-  whenever `clojure.core/gensym` returns two symbols that cross an
-  order-of-magnitude boundary.)"
-  [prefix]
-  (let [count (atom -1)]
-    (fn [] (symbol
-           #?(:clj
-              (format "%s%016x" prefix (swap! count inc))
-
-              :cljs
-              (let [i (swap! count inc)
-                    suffix (-> (.toString i 16)
-                               (.padStart 16 "0"))]
-                (str prefix suffix)))))))

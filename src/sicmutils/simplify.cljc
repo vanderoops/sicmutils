@@ -43,51 +43,56 @@
            (log/warn (str "simplifier timed out: must have been a complicated expression"))
            x))))
 
-(defn- poly-analyzer
-  "An analyzer capable of simplifying sums and products, but unable to
-  cancel across the fraction bar.
+(defn ^:no-doc poly-analyzer
+  "An analyzer capable of simplifying sums and products, but unable to cancel
+  across the fraction bar.
 
   NOTE: I think this is fpf:analyzer in the scheme code."
   []
-  (a/make-analyzer (poly/->PolynomialAnalyzer)
-                   (a/monotonic-symbol-generator "-s-")))
+  (let [backend (poly/->PolynomialAnalyzer)
+        gensym  (a/monotonic-symbol-generator "-s-")]
+    (a/make-analyzer backend gensym)))
 
-(defn- rational-function-analyzer
+(defn ^:no-doc rational-function-analyzer
   "An analyzer capable of simplifying expressions built out of rational
   functions.
 
   NOTE: This is rcf:analyzer."
   []
-  (a/make-analyzer (rf/->RationalFunctionAnalyzer (poly/->PolynomialAnalyzer))
-                   (a/monotonic-symbol-generator "-r-")))
+  (let [backend (rf/->RationalFunctionAnalyzer
+                 (poly/->PolynomialAnalyzer))
+        gensym  (a/monotonic-symbol-generator "-r-")]
+    (a/make-analyzer backend gensym)))
 
-(def ^:dynamic *rf-analyzer*
+(def ^{:dynamic true
+       :doc "Memoized version of fpf:simplify"}
+  *poly-simplify*
+  (memoize
+   (a/expression-simplifier
+    (poly-analyzer))))
+
+(def ^:dynamic *rf-simplify*
   (memoize
    (unless-timeout
     (a/expression-simplifier
      (rational-function-analyzer)))))
 
-(def ^:dynamic *poly-analyzer*
-  (memoize
-   (a/expression-simplifier
-    (poly-analyzer))))
-
 (defn hermetic-simplify-fixture
   [f]
-  (binding [*rf-analyzer* (a/expression-simplifier
+  (binding [*rf-simplify* (a/expression-simplifier
                            (rational-function-analyzer))
-            *poly-analyzer* (a/expression-simplifier
+            *poly-simplify* (a/expression-simplifier
                              (poly-analyzer))]
     (f)))
 
 (def ^:private simplify-and-flatten
-  #'*rf-analyzer*)
+  #'*rf-simplify*)
 
 (comment
   ;; TODO - this is what is going on in the scmutils codebase.
   (def ^:private simplify-and-flatten
-    (comp #'*poly-analyzer*
-          #'*rf-analyzer*)))
+    (comp #'*poly-simplify*
+          #'*rf-simplify*)))
 
 (defn ^:private simplify-until-stable
   [rule-simplify canonicalize]
@@ -97,7 +102,12 @@
         expression
         (let [canonicalized-expression (canonicalize new-expression)]
           (cond (= canonicalized-expression expression) expression
-                (v/zero? (*poly-analyzer* `(~'- ~expression ~canonicalized-expression))) canonicalized-expression
+
+                (v/zero? (*poly-simplify*
+                          `(~'- ~expression
+                            ~canonicalized-expression)))
+                canonicalized-expression
+
                 :else (recur canonicalized-expression)))))))
 
 (defn ^:private simplify-and-canonicalize
@@ -120,15 +130,18 @@
   (simplify-and-canonicalize
    rules/simplify-square-roots simplify-and-flatten))
 
-;; looks like we might have the modules inverted: rulesets will need some functions from the
-;; simplification library, so this one has to go here. Not ideal the way we have split things
-;; up, but at least things are beginning to simplify adequately.
+;; looks like we might have the modules inverted: rulesets will need some
+;; functions from the simplification library, so this one has to go here. Not
+;; ideal the way we have split things up, but at least things are beginning to
+;; simplify adequately.
 
-(def ^:private simplifies-to-zero?
-  #(-> % *poly-analyzer* v/zero?))
+(defn- simplifies-to-zero? [expr]
+  (v/zero?
+   (*poly-simplify* expr)))
 
-(def ^:private simplifies-to-one?
-  #(-> % *rf-analyzer* v/one?))
+(defn- simplifies-to-one? [expr]
+  (v/one?
+   (*rf-simplify* expr)))
 
 (def trig-cleanup
   "This finds things like a - a cos^2 x and replaces them with a sin^2 x"

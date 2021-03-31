@@ -208,8 +208,11 @@
       (is (= [z2 x3 x2z2 xy2z] (monomial-sort p/graded-reverse-lex-order)))
       (is (= [z2 x3 xy2z x2z2] (monomial-sort p/graded-lex-order))))))
 
-(def ^:private poly-analyzer (p/->PolynomialAnalyzer))
-(defn ^:private ->poly [x] (a/expression-> poly-analyzer x (fn [p _] p)))
+(def poly-analyzer
+  (p/->PolynomialAnalyzer))
+
+(defn ->poly [x]
+  (a/expression-> poly-analyzer x (fn [p _] p)))
 
 (deftest poly-evaluate
   (testing "arity 1"
