@@ -440,26 +440,32 @@
   [p q]
   (binary-combine p q g/* mul-terms '*))
 
-;; TODO continue from here!
-
 (defn expt
   "Raise the polynomial p to the (integer) power n."
   [p n]
-  (when-not (and (v/native-integral? n)
-                 (not (g/negative? n)))
-    (u/arithmetic-ex (str "can't raise poly to " n)))
-  (cond (v/one? p) p
-        (v/zero? p) (if (v/zero? n)
-                      (u/arithmetic-ex "poly 0^0")
-                      p)
-        (v/zero? n) (make-constant (.-arity p) 1)
-        :else (loop [x p
-                     c n
-                     a (make-constant (.-arity p) 1)]
-                (if (v/zero? c) a
-                    (if (even? c)
-                      (recur (poly:* x x) (g/quotient c 2) a)
-                      (recur x (dec c) (poly:* x a)))))))
+  (letfn [(expt-iter [x n answer]
+            (cond (zero? n) answer
+                  (even? n) (recur (poly:* x x) (quot n 2) answer)
+                  :else     (recur x (dec n) (poly:* x answer))))]
+    (cond (coeff? p)  (g/expt p n)
+
+          (not (explicit-polynomial? p))
+          (u/illegal "Wrong type :" p)
+
+          (not (v/native-integral? n))
+          (u/illegal (str "Can only raise an FPF to an exact integer power: " p n))
+
+          (neg? n)
+          (u/illegal (str "No inverse -- FPF:EXPT:" p n))
+
+          (v/one? p)  p
+          (v/zero? p) (if (v/zero? n)
+                        (u/arithmetic-ex "poly 0^0")
+                        p)
+
+          :else (expt-iter p n 1))))
+
+;; TODO go from here!
 
 (defn divide
   "Divide polynomial u by v, and return the pair of [quotient, remainder]
@@ -504,29 +510,29 @@
        (str "expected even division left a remainder!" u " / " v " r " r)))
     q))
 
-(defn abs
-  [p]
-  (if (-> p lead-term coefficient g/negative?)
-    (negate p)
-    p))
+(defn abs [p]
+  (let [lead-coef (coefficient (lead-term p))]
+    (if (g/negative? lead-coef)
+      (negate p)
+      p)))
 
 (defn raise-arity
   "The opposite of lower-arity."
-  [^Polynomial p]
+  [p]
   {:pre [(polynomial? p)
-         (= (.-arity p) 1)]}
-  (let [terms (for [[x q] (.-xs->c p)
-                    [ys c] (.-xs->c q)]
+         (= (bare-arity p) 1)]}
+  (let [terms (for [[x q] (bare-terms p)
+                    [ys c] (bare-terms q)]
                 [(into x ys) c])
         ltc (coefficient (lead-term p))]
-    (make (inc (.-arity ltc)) terms)))
+    (make (inc (bare-arity ltc)) terms)))
 
 (defn lower-arity
   "Given a nonzero polynomial of arity A > 1, return an equivalent polynomial
   of arity 1 whose coefficients are polynomials of arity A-1."
-  [^Polynomial p]
+  [p]
   {:pre [(polynomial? p)
-         (> (.-arity p) 1)
+         (> (bare-arity p) 1)
          (not (v/zero? p))]}
   ;; XXX observation:
   ;; XXX we often create polynomials of "one lower arity"
@@ -534,8 +540,8 @@
   ;; we should notice.
   ;; (but univariate in which variable? is it really that
   ;; common that it's the first one?)
-  (let [A (.-arity p)]
-    (->> (.-xs->c p)
+  (let [A (bare-arity p)]
+    (->> (bare-terms p)
          (group-by #(first (exponents %)))
          (map (fn [[x cs]]
                 [[x] (make (dec A) (for [[xs c] cs]
@@ -544,8 +550,8 @@
 
 (defn ^:private evaluate-1
   "Evaluates a univariate polynomial p at x."
-  [^Polynomial p x]
-  (loop [xs->c (.-xs->c p)
+  [p x]
+  (loop [xs->c (bare-terms p)
          result 0
          x**e 1
          e 0]
@@ -563,7 +569,7 @@
   {:pre [(polynomial? p)]}
   (cond (nil? xs) p
         (v/zero? p) 0
-        (= (.-arity p) 1) (evaluate-1 p (first xs))
+        (= (bare-arity p) 1) (evaluate-1 p (first xs))
         :else (let [L (evaluate-1 (lower-arity p) (first xs))]
                 (if (polynomial? L)
                   (recur L (next xs))
@@ -584,7 +590,7 @@
   {:pre [(polynomial? u)
          (polynomial? v)
          (not (v/zero? v))
-         (= (.-arity u) (.-arity v) 1)]}
+         (= (bare-arity u) (bare-arity v) 1)]}
   (let [a (check-same-arity u v)
         [vn-exponents vn-coefficient] (lead-term v)
         *vn (fn [p] (map-coefficients #(g/* vn-coefficient %) p))
@@ -604,8 +610,8 @@
   [p i]
   (if (base? p)
     0
-    (make (.-arity ^Polynomial p)
-          (for [[xs c] (.-xs->c ^Polynomial p)
+    (make (bare-arity p)
+          (for [[xs c] (bare-terms p)
                 :let [xi (xs i)]
                 :when (not= 0 xi)]
             [(update xs i dec) (g/* xi c)]))))
@@ -616,7 +622,7 @@
   [p]
   (if (v/number? p)
     [0]
-    (for [i (range (.-arity ^Polynomial p))]
+    (for [i (range (bare-arity p))]
       (partial-derivative p i))))
 
 ;; ## Canonicalizer
@@ -669,7 +675,7 @@
           +    (sym/symbolic-operator '+)
           expt (sym/symbolic-operator 'expt)]
       (if (polynomial? p)
-        (->> (.-xs->c  ^Polynomial p)
+        (->> (bare-terms p)
              (sort-by exponents #(monomial-order %2 %1))
              (map (fn [[xs c]]
                     (->> (map (fn [exponent var]
