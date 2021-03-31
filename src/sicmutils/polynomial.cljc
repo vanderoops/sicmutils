@@ -133,9 +133,9 @@
 
   (one? [_]
     (and (= (count xs->c) 1)
-         (let [[[xs c]] xs->c]
-           (and (every? v/zero? xs)
-                (v/one? c)))))
+         (let [[term] xs->c]
+           (and (v/zero? (exponents term))
+                (v/one? (coefficient term))))))
 
   (identity? [_]
     (and (v/one? arity)
@@ -144,7 +144,6 @@
            (and (v/one? e)
                 (v/one? c)))))
 
-  ;; TODO: return 0, 1 here for 0 and 1 like!!
   (zero-like [_]
     (Polynomial. arity empty-terms))
 
@@ -156,11 +155,12 @@
 
   (identity-like [_]
     (assert (v/one? arity)
-            "identity-like unsupported on non-monomials!")
+            "identity-like unsupported on multivariate monomials!")
     (let [one (if-let [term (first xs->c)]
                 (v/one-like (coefficient term))
-                1)]
-      (Polynomial. arity [[[one] one]])))
+                1)
+          term (make-term [1] one)]
+      (Polynomial. arity [term])))
 
   (exact? [_] false)
   (freeze [_] `(~'polynomial ~arity ~xs->c))
@@ -250,6 +250,16 @@
   (or (coeff? p)
       (= 1 (count (terms p)))))
 
+(defn monic?
+  "Returns true if `p` is a [monic
+  polynomial](https://en.wikipedia.org/wiki/Monic_polynomial), false otherwise."
+  [p]
+  (if (coeff? p)
+    (v/one? p)
+    (and (= 1 (arity p))
+         (v/one? (coefficient
+                  (lead-term p))))))
+
 (defn coefficients
   "NOTE this can handle coefs now."
   [p]
@@ -285,6 +295,20 @@
                 [(make-term (into [] (repeat arity 0)) c)])]
     (->Polynomial arity terms)))
 
+;; TODO check what this actually generates... I bet we do NOT want to generate
+;; NON polynomials here, if the original does not!!
+
+(defn make-c*xn
+  "Polynomial representing c*x^n, where x is always the first indeterminate."
+  [arity c n]
+  (cond (<= n -1)   0
+        (v/zero? n) c
+        (v/zero? c) c
+        :else
+        (let [term (make-term (into [n] (repeat (dec arity) 0))
+                              c)]
+          (->Polynomial arity [term]))))
+
 (defn- guarded-make
   [arity terms]
   (let [n (count terms)]
@@ -312,7 +336,9 @@
   TODO note that we now return a coefficient for constant, even if they sum to a
   constant. We try hard to get OUT of poly land!
 
-  TODO note that we have to have ALL the same arity!"
+  TODO note that we have to have ALL the same arity!
+
+  TODO ALSO check that this is bailing out correctly."
   ([dense-coefficients]
    (let [terms (map-indexed (fn [i coef]
                               (make-term [i] coef))
@@ -332,11 +358,8 @@
 
 ;; ## Polynomial API
 
-(def poly:zero 0)
-(def poly:one 1)
-
 (def poly:identity
-  (make 1 [[[1] 1]]))
+  (make 1 [(make-term [1] 1)]))
 
 (defn check-same-arity
   "TODO works now for constants, check!"
@@ -386,11 +409,73 @@
              (f (exponents term))
              (coefficient term))))))
 
+;; ## Manipulations
+
+(defn poly:extend
+  "TODO interpolate a new variable in the `n` spot by expanding all vectors."
+  [p n]
+  )
+
+(defn contract [p n])
+(defn contractible? [p n])
+
+(comment
+  (define (poly/contract n p)
+    (if (poly/contractable? n p)
+      (let ((arity (poly/arity p)))
+	      (if (fix:= n 0)
+	        (poly/trailing-coefficient p)
+	        (let lp ((p p))
+	             (cond ((poly/zero? p) p)
+		                 (else
+		                  (poly/adjoin (fix:- arity 1)
+				                           (poly/degree p)
+				                           (poly/contract (fix:- n 1)
+				                                          (poly/leading-coefficient p))
+				                           (lp
+				                            (poly/except-leading-term arity p))))))))
+      (error "Poly not contractable" n p)))
+
+  (define (poly/contractable? n p)
+    (or (base? p)
+        (if (fix:= n 0)
+	        (fix:= (poly/degree p) 0)
+          (and (fix:< n (poly/arity p))
+	             (let lp ((p p))
+		                (cond ((poly/zero? p) true)
+		                      ((poly/contractable?
+                            (fix:- n 1)
+					                  (poly/leading-coefficient p))
+			                     (poly/contractable?
+                            n
+			                      (poly/except-leading-term (poly/arity p) p)))
+		                      (else false))))))))
+
+
+(defn normalize
+  "Note that we can take coefs on left too..."
+  [p c]
+  {:pre [(polynomial? p)
+         (base? c)]}
+  (cond (v/zero? c) (u/arithmetic-ex (str "Divide by zero: " p c))
+        (v/one? c) p
+        :else
+        (let [c' (g/invert c)]
+          (map-coefficients #(g/* c' %) p))))
+
+;; TODO
+(defn scale [p c]
+  )
+
+;; TODO
+(defn arg-shift [p c]
+  )
 
 ;; ## Polynomial Arithmetic
 
 (defn negate [p]
   (map-coefficients g/negate p))
+
 
 (defn- binary-combine [l r coeff-op terms-op opname]
   (letfn [(wta []
@@ -401,16 +486,16 @@
         (coeff-op l r)
         (if (explicit-polynomial? r)
           (let [l-poly (make-constant (bare-arity r) l)]
-            (make
-             (terms-op (bare-terms l-poly)
-                       (bare-terms r))))
+            (make (bare-arity r)
+                  (terms-op (bare-terms l-poly)
+                            (bare-terms r))))
           (wta)))
       (if (coeff? r)
         (if (explicit-polynomial? l)
 	        (let [r-poly (make-constant (bare-arity l) r)]
-            (make
-	           (terms-op (bare-terms l)
-			                 (bare-terms r-poly))))
+            (make (bare-arity l)
+	                (terms-op (bare-terms l)
+			                      (bare-terms r-poly))))
 	        (wta))
         (if (and (explicit-polynomial? l)
 		             (explicit-polynomial? r))
@@ -465,12 +550,32 @@
 
           :else (expt-iter p n 1))))
 
-;; TODO go from here!
-
+;; TODO go from here! divide, then horner-eval, get those working (raise and
+;; lower come along for the ride).
+;;
+;; then lock in to and from expressions... that covers fpf if that's all done.
+;;
+;; TODO oh! get accumulation going so that all this stuff actually works. That
+;; will be a nice PR for itself.
+;;
+;; TODO implement more protocols, like IFn for SURE.
+;;
+;; TODO to power series, for arity == 1...
+;;
+;; TODO monic?
+;;
+;; TODO put `abs` back in! weird, it is `poly/abs`...
+;;
+;; TODO make proper equality method... use v/=
+;;
+;;
+;; TODO get notes from pcf, poly/div
 (defn divide
   "Divide polynomial u by v, and return the pair of [quotient, remainder]
-  polynomials. This assumes that the coefficients are drawn from a field,
-  and so support division."
+  polynomials.
+
+  This assumes that the coefficients are drawn from a field, and so support
+  division."
   [u v]
   {:pre [(polynomial? u)
          (polynomial? v)]}
@@ -510,28 +615,11 @@
        (str "expected even division left a remainder!" u " / " v " r " r)))
     q))
 
-(defn abs [p]
-  (let [lead-coef (coefficient (lead-term p))]
-    (if (g/negative? lead-coef)
-      (negate p)
-      p)))
-
-(defn raise-arity
-  "The opposite of lower-arity."
-  [p]
-  {:pre [(polynomial? p)
-         (= (bare-arity p) 1)]}
-  (let [terms (for [[x q] (bare-terms p)
-                    [ys c] (bare-terms q)]
-                [(into x ys) c])
-        ltc (coefficient (lead-term p))]
-    (make (inc (bare-arity ltc)) terms)))
-
 (defn lower-arity
   "Given a nonzero polynomial of arity A > 1, return an equivalent polynomial
   of arity 1 whose coefficients are polynomials of arity A-1."
   [p]
-  {:pre [(polynomial? p)
+  {:pre [(explicit-polynomial? p)
          (> (bare-arity p) 1)
          (not (v/zero? p))]}
   ;; XXX observation:
@@ -548,7 +636,19 @@
                                      [(subvec xs 1) c]))]))
          (make 1))))
 
-(defn ^:private evaluate-1
+(defn raise-arity
+  "The opposite of lower-arity. This needs a polynomial with terms that are
+  THEMSELVES coefficients."
+  [p]
+  {:pre [(explicit-polynomial? p)
+         (= (bare-arity p) 1)]}
+  (let [terms (for [[x q]  (bare-terms p)
+                    [ys c] (bare-terms q)]
+                [(into x ys) c])
+        ltc (coefficient (lead-term p))]
+    (make (inc (bare-arity ltc)) terms)))
+
+(defn- evaluate-1
   "Evaluates a univariate polynomial p at x."
   [p x]
   (loop [xs->c (bare-terms p)
@@ -566,26 +666,39 @@
 (defn evaluate
   "Evaluates a multivariate polynomial p at xs."
   [p xs]
-  {:pre [(polynomial? p)]}
-  (cond (nil? xs) p
+  (cond (coeff? p)  p
+        (empty? xs) p
         (v/zero? p) 0
-        (= (bare-arity p) 1) (evaluate-1 p (first xs))
+        (= (arity p) 1) (evaluate-1 p (first xs))
         :else (let [L (evaluate-1 (lower-arity p) (first xs))]
                 (if (polynomial? L)
                   (recur L (next xs))
                   L))))
 
+;; Pseudo division produces only a remainder--no quotient.
+;;  This can be used to generalize Euclid's algorithm for polynomials
+;;  over a unique factorization domain (UFD).
+;;
+;; This implementation differs from Knuth's Algorithm R in that
+;; Knuth's contributes to the integerizing factor, making it
+;; l(v)^(m-n+1), even though no factor of l(v) is needed if a u_j is
+;; zero for some n<j<m.  This matters a great deal in the
+;; multivariate case.
+;;
+;; Sussman's code -- good for Euclid Algorithm
+
 (defn pseudo-remainder
   "Compute the pseudo-remainder of univariate polynomials p and
-  q. Fractions won't appear in the result; instead the divisor is
-  multiplied by the leading coefficient of the dividend before
-  quotient terms are generated so that division will not result in
-  fractions. Only the remainder is returned, together with the
-  integerizing factor needed to make this happen. Similar in spirit to
-  Knuth's algorithm 4.6.1R, except we don't multiply the remainder
-  through during gaps in the remainder. Since you don't know up front
-  how many times the integerizing multiplication will be done, we also
-  return the number d for which d * u = q * v + r."
+  q.
+
+  Fractions won't appear in the result; instead the divisor is multiplied by the
+  leading coefficient of the dividend before quotient terms are generated so
+  that division will not result in fractions. Only the remainder is returned,
+  together with the integerizing factor needed to make this happen. Similar in
+  spirit to Knuth's algorithm 4.6.1R, except we don't multiply the remainder
+  through during gaps in the remainder. Since you don't know up front how many
+  times the integerizing multiplication will be done, we also return the number
+  d for which d * u = q * v + r."
   [u v]
   {:pre [(polynomial? u)
          (polynomial? v)
@@ -595,13 +708,15 @@
         [vn-exponents vn-coefficient] (lead-term v)
         *vn (fn [p] (map-coefficients #(g/* vn-coefficient %) p))
         n (reduce g/+ vn-exponents)]
-    (loop [remainder u d 0]
+    (loop [remainder u d -1]
       (let [m (degree remainder)
-            c (-> remainder lead-term coefficient)]
+            c (coefficient
+               (lead-term remainder))]
         (if (< m n)
           [remainder d]
           (recur (poly:- (*vn remainder)
-                         (poly:* v (->Polynomial a [[[(g/- m n)] c]])))
+                         (poly:* (make-c*xn a c (g/- m n))
+                                 v))
                  (inc d)))))))
 
 (defn partial-derivative
@@ -698,6 +813,7 @@
 ;; ## Generic Implementations
 
 (defmethod g/negate [::polynomial] [a] (negate a))
+
 (defmethod g/add [::polynomial ::polynomial] [a b] (poly:+ a b))
 (defmethod g/mul [::polynomial ::polynomial] [a b] (poly:* a b))
 (defmethod g/sub [::polynomial ::polynomial] [a b] (poly:- a b))
@@ -705,8 +821,9 @@
 (defmethod g/exact-divide [::polynomial ::polynomial] [p q]
   (evenly-divide p q))
 
+;; quotient, remainder... TODO search for more functions!
+
 (defmethod g/square [::polynomial] [a] (poly:* a a))
-(defmethod g/abs [::polynomial] [a] (abs a))
 
 (defmethod g/mul [::v/number ::polynomial] [c p]
   (map-coefficients #(g/* c %) p))
