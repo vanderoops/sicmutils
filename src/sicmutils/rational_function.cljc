@@ -378,11 +378,11 @@
 (defmethod g/div [::v/integral ::rational-function] [c ^RationalFunction r]
   (g/divide (p/make-constant (.-arity r) c) r))
 
-(defmethod g/div [::v/integral ::p/polynomial] [c ^Polynomial p]
-  (make (p/make-constant (.-arity p) c) p))
+(defmethod g/div [::v/integral ::p/polynomial] [c p]
+  (make (p/make-constant (p/bare-arity p) c) p))
 
-(defmethod g/invert [::p/polynomial] [^Polynomial p]
-  (make (p/make-constant (.-arity p) 1) p))
+(defmethod g/invert [::p/polynomial] [p]
+  (make (p/make-constant (p/bare-arity p) 1) p))
 
 (defmethod g/expt [::rational-function ::v/integral] [b x] (expt b x))
 
