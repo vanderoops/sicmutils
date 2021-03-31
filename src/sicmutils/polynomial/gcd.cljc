@@ -275,8 +275,7 @@
             *clock* (us/stopwatch)]
     (thunk)))
 
-(declare sparse-base-content poly->sparse
-         gcd-sparse gcd-classical)
+(declare sparse-base-content poly->sparse)
 
 (def poly:one 1)
 
@@ -285,17 +284,37 @@
   [u v]
   false)
 
+(comment
+  ;; TODO handle both polynomial forms.
+  (define (poly/gcd-classical u v)
+    (cond ((explicit-pcf? u)
+           (cond ((explicit-pcf? v)
+		              (poly/gcd-euclid u v))
+	               ((explicit-fpf? v)
+		              (poly/gcd-euclid u (fpf->pcf v)))
+	               (else (error "What do I do here?"))))
+	        ((explicit-fpf? u)
+	         (cond ((explicit-pcf? v)
+		              (pcf->fpf
+		               (poly/gcd-euclid (fpf->pcf u) v)))
+	               ((explicit-fpf? v)
+		              (pcf->fpf
+		               (poly/gcd-euclid (fpf->pcf u)
+				                            (fpf->pcf v))))
+	               (else (error "What do I do here?")))))))
+
 (defn gcd-classical [u v]
   (let [clock (us/stopwatch)]
-    (binding [*poly-gcd-bail-out* (maybe-bail-out "polynomial GCD" clock *poly-gcd-time-limit*)]
+    (binding [*poly-gcd-bail-out* (maybe-bail-out
+                                   "polynomial GCD" clock *poly-gcd-time-limit*)]
       (g/abs
        (gcd-continuation-chain u v
                                with-trivial-constant-gcd-check
                                with-optimized-variable-order
                                #(inner-gcd 0 %1 %2))))))
 
-;; TODO: comes from poly:gcd-dispatch
-(defn gcd
+(defn- gcd-dispatch
+  "Dispatcher for GCD routines."
   ([] 0)
   ([u] u)
   ([u v]
@@ -339,7 +358,7 @@
 		                       poly:one)
 		                   (gcd-classical u v))))))))
 
-(defmethod g/gcd [::p/polynomial ::p/polynomial] [u v] (gcd u v))
+(defmethod g/gcd [::p/polynomial ::p/polynomial] [u v] (gcd-dispatch u v))
 
 (def ^:private gcd-seq
   "Compute the GCD of a sequence of polynomials (we take care to

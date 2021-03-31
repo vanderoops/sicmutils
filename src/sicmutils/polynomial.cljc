@@ -30,6 +30,12 @@
             [sicmutils.value :as v]
             #?(:cljs [goog.string :refer [format]])))
 
+;; ## Flat Polynomial Form, for Commutative Rings
+;;
+;; Terms are represented as pairs of [<exponents>, <coef>].
+;;
+;; This is already a sparse representation.
+
 (defn exponents [term]
   (nth term 0 []))
 
@@ -480,9 +486,7 @@
    'negate negate
    'expt g/expt
    'square #(mul % %)
-   'cube #(mul % (mul % %))
-   ;;`'g/gcd gcd
-   })
+   'cube #(mul % (mul % %))})
 
 (def ^:private operators-known
   (into #{} (keys operator-table)))
