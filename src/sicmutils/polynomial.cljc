@@ -25,10 +25,15 @@
             [sicmutils.expression :as x]
             [sicmutils.function :as f]
             [sicmutils.generic :as g]
+            [sicmutils.modint :as mi]
             [sicmutils.numsymb :as sym]
             [sicmutils.util :as u]
             [sicmutils.value :as v]))
 
+;; TODO note that this differs from scmutils because we can extend the
+;; coefficient space.
+
+;;
 ;; # Flat Polynomial Form, for Commutative Rings
 ;;
 ;; The namespace starts by defining monomials, then builds these into
@@ -81,17 +86,21 @@
                (vec (rseq xs)))
       (g/- xd yd))))
 
-(def ^:private monomial-order
+(def ^:no-doc monomial-order
   graded-lex-order)
 
 ;; ## Polynomial Terms
 
-;; from pcf
-(def base? v/number?)
+
+(derive ::v/number ::coeff)
+(derive ::mi/modint ::coeff)
 
 ;; from fpf
 (defn coeff? [x]
-  (v/number? x))
+  (isa? (v/kind x) ::coeff))
+
+;; TODO: from pcf, keep?
+(def base? coeff?)
 
 (defn coeff-zero? [x]
   (and (coeff? x)
@@ -124,7 +133,7 @@
 ;;
 ;; TODO look at PowerSeries, see what we're missing.
 
-(declare make-constant poly->str)
+(declare make-constant poly->str poly:=)
 
 (deftype Polynomial [arity xs->c]
   v/Value
@@ -171,19 +180,12 @@
 
   #?@(:clj
       [Object
-       (equals [_ b]
-               (and (instance? Polynomial b)
-                    (and (= arity (.-arity b))
-                         (= xs->c (.-xs->c b)))))
-
+       (equals [this that] (poly:= this that))
        (toString [p] (poly->str p))]
 
       :cljs
       [IEquiv
-       (-equiv [_ b]
-               (and (instance? Polynomial b)
-                    (and (= arity (.-arity b))
-                         (= xs->c (.-xs->c b)))))
+       (-equiv [this that] (poly:= this thiat))
 
        Object
        (toString [p] (poly->str p))
@@ -205,7 +207,7 @@
   (or (coeff? x)
       (explicit-polynomial? x)))
 
-(defn- bare-arity [p]
+(defn ^:no-doc bare-arity [p]
   {:pre [(explicit-polynomial? p)]}
   (.-arity ^Polynomial p))
 
@@ -213,7 +215,34 @@
   {:pre [(explicit-polynomial? p)]}
   (.-xs->c ^Polynomial p))
 
-(defn terms [p]
+(defn poly:=
+  "Polynomials are equal to a number if the polynomial is constant; otherwise
+  it's only equal to other polynomials."
+  [^Polynomial this that]
+  (cond (coeff? that)
+        (let [terms (.-xs->c this)]
+          (and (<= (count terms) 1)
+               (constant-term? (peek terms))
+               (v/= that (coefficient
+                          (peek terms)))))
+
+        (instance? Polynomial that)
+        (let [p ^Polynomial that]
+          (and (= (.-arity this) (.-arity p))
+               (v/= (.-xs->c this) (.-xs->c p))))
+
+        :else false))
+
+(defmethod v/= [::v/number ::polynomial] [l r] (poly:= r l))
+(defmethod v/= [::mi/modint ::polynomial] [l r] (poly:= r l))
+(defmethod v/= [::polynomial ::mi/modint] [l r] (poly:= l r))
+
+(defn terms
+  "TODO note that this fails for constants! It's only for a zero that we can
+  really know that there are no terms.
+
+  MAYBE put a better exception in."
+  [p]
   (if (and (coeff? p)
            (coeff-zero? p))
     []
@@ -227,6 +256,10 @@
   [p]
   (or (peek (terms p))
       [[] 0]))
+
+(defn- lead-coefficient [p]
+  (coefficient
+   (lead-term p)))
 
 (defn arity
   "TODO what's the difference between arity and degree?"
@@ -257,8 +290,7 @@
   (if (coeff? p)
     (v/one? p)
     (and (= 1 (arity p))
-         (v/one? (coefficient
-                  (lead-term p))))))
+         (v/one? (lead-coefficient p)))))
 
 (defn coefficients
   "NOTE this can handle coefs now."
@@ -272,7 +304,7 @@
 (defn- term->str [term]
   (let [expts (exponents term)
         coef  (coefficient term)]
-    (str coef "*[" (cs/join "," expts) "]")))
+    (str (pr-str coef) "*[" (cs/join "," expts) "]")))
 
 (defn- poly->str
   ([p] (poly->str p 10))
@@ -286,28 +318,6 @@
      (str "(" (cs/join " + " term-strs) suffix ")"))))
 
 ;; ## Constructors
-
-(defn make-constant
-  "Return a constant polynomial of the given arity."
-  [arity c]
-  (let [terms (if (v/zero? c)
-                empty-terms
-                [(make-term (into [] (repeat arity 0)) c)])]
-    (->Polynomial arity terms)))
-
-;; TODO check what this actually generates... I bet we do NOT want to generate
-;; NON polynomials here, if the original does not!!
-
-(defn make-c*xn
-  "Polynomial representing c*x^n, where x is always the first indeterminate."
-  [arity c n]
-  (cond (<= n -1)   0
-        (v/zero? n) c
-        (v/zero? c) c
-        :else
-        (let [term (make-term (into [n] (repeat (dec arity) 0))
-                              c)]
-          (->Polynomial arity [term]))))
 
 (defn- guarded-make
   [arity terms]
@@ -356,10 +366,52 @@
                       (into empty-terms))]
        (guarded-make arity terms)))))
 
-;; ## Polynomial API
+(defn poly:identity
+  "TODO modeled on sparse-identity-term"
+  ([]
+   (poly:identity 1 1))
+  ([arity]
+   (poly:identity arity 1))
+  ([arity varnum]
+   {:pre [(<= varnum arity)]}
+   (let [expts (-> (into [] (repeat arity 0))
+                   (assoc (dec varnum) 1))]
+     (make arity [(make-term expts 1)]))))
 
-(def poly:identity
-  (make 1 [(make-term [1] 1)]))
+(defn make-constant
+  "Return a constant polynomial of the given arity."
+  ([c] (make-constant 1 c))
+  ([arity c]
+   (let [terms (if (v/zero? c)
+                 empty-terms
+                 [(make-term (into [] (repeat arity 0)) c)])]
+     (->Polynomial arity terms))))
+
+;; TODO check what this actually generates... I bet we do NOT want to generate
+;; NON polynomials here, if the original does not!!
+
+(defn make-c*xn
+  "Polynomial representing c*x^n, where x is always the first indeterminate."
+  [arity c n]
+  (cond (<= n -1)   0
+        (v/zero? n) c
+        (v/zero? c) c
+        :else
+        (let [term (make-term (into [n] (repeat (dec arity) 0))
+                              c)]
+          (->Polynomial arity [term]))))
+
+(declare poly:+)
+
+(defn make-linear
+  "Makes a polynomial representing a linear equation."
+  [arity varnum root]
+  (if (v/zero? root)
+    (poly:identity arity varnum)
+    (poly:+ (make-constant arity (g/negate root))
+            (poly:identity arity varnum))))
+
+;; ## Polynomial API
 
 (defn check-same-arity
   "TODO works now for constants, check!"
@@ -411,15 +463,16 @@
 
 ;; ## Manipulations
 
-(defn poly:extend
-  "TODO interpolate a new variable in the `n` spot by expanding all vectors."
-  [p n]
-  )
-
-(defn contract [p n])
-(defn contractible? [p n])
-
+#_
 (comment
+  (defn poly:extend
+    "TODO interpolate a new variable in the `n` spot by expanding all vectors."
+    [p n]
+    )
+
+  (defn contract [p n])
+  (defn contractible? [p n])
+
   (define (poly/contract n p)
     (if (poly/contractable? n p)
       (let ((arity (poly/arity p)))
@@ -463,46 +516,25 @@
         (let [c' (g/invert c)]
           (map-coefficients #(g/* c' %) p))))
 
-;; TODO
-(defn scale [p c]
-  )
-
-;; TODO
-(defn arg-shift [p c]
-  )
-
 ;; ## Polynomial Arithmetic
 
 (defn negate [p]
   (map-coefficients g/negate p))
 
-
 (defn- binary-combine [l r coeff-op terms-op opname]
-  (letfn [(wta []
-            (u/illegal (str "Wrong type argument for " opname " : "
-                            l ", " r)))]
-    (if (coeff? l)
-      (if (coeff? r)
-        (coeff-op l r)
-        (if (explicit-polynomial? r)
-          (let [l-poly (make-constant (bare-arity r) l)]
-            (make (bare-arity r)
-                  (terms-op (bare-terms l-poly)
-                            (bare-terms r))))
-          (wta)))
-      (if (coeff? r)
-        (if (explicit-polynomial? l)
-	        (let [r-poly (make-constant (bare-arity l) r)]
-            (make (bare-arity l)
-	                (terms-op (bare-terms l)
-			                      (bare-terms r-poly))))
-	        (wta))
-        (if (and (explicit-polynomial? l)
-		             (explicit-polynomial? r))
-	        (make (check-same-arity l r)
-                (terms-op (bare-terms l)
-                          (bare-terms r)))
-	        (wta))))))
+  (if (explicit-polynomial? l)
+    (if (explicit-polynomial? r)
+      (make (check-same-arity l r)
+            (terms-op (bare-terms l)
+                      (bare-terms r)))
+      (let [r-poly (make-constant (bare-arity l) r)]
+        (make (bare-arity l)
+	            (terms-op (bare-terms l)
+			                  (bare-terms r-poly)))))
+    (let [l-poly (make-constant (bare-arity r) l)]
+      (make (bare-arity r)
+            (terms-op (bare-terms l-poly)
+                      (bare-terms r))))))
 
 (defn poly:+
   "Adds the polynomials p and q"
@@ -517,7 +549,7 @@
 (defn- mul-terms [l r]
   (for [[l-expts l-coef] l
         [r-expts r-coef] r]
-    (make-term (g/+ l-expts r-expts)
+    (make-term (mapv g/+ l-expts r-expts)
                (g/* l-coef r-coef))))
 
 (defn poly:*
@@ -588,7 +620,8 @@
                             (and (not-empty residues)
                                  (every? (complement neg?) residues)))]
                 (if (zero? arity)
-                  [(make 0 [[[] (g/divide (coefficient (lead-term u)) vn-coefficient)]])
+                  [(make 0 [[[] (g/divide (lead-coefficient u)
+                                          vn-coefficient)]])
                    (make 0 [[[] 0]])]
                   (loop [quotient (make arity [])
                          remainder u]
@@ -614,6 +647,15 @@
       (u/illegal-state
        (str "expected even division left a remainder!" u " / " v " r " r)))
     q))
+
+(defn abs
+  "TODO this seems suspicious... how could this possibly be true? Maybe keep it
+  but don't install?"
+  [p]
+  (if (g/negative?
+       (lead-coefficient p))
+    (negate p)
+    p))
 
 (defn lower-arity
   "Given a nonzero polynomial of arity A > 1, return an equivalent polynomial
@@ -675,6 +717,37 @@
                   (recur L (next xs))
                   L))))
 
+;; ## Scale and Shift
+;;
+;; Given polynomial P(x), substitute x = r*y and compute the resulting
+;;  polynomial Q(y) = P(y*r).  When a multivariate polynomial is
+;;  scaled, each factor must have the same arity as the given
+;;  polynomial... or a base constant.
+;;
+;; NOTE this is actually scaling each arg.
+
+(comment
+  (define (poly/arg-scale p factors)
+    (poly/horner p
+	               (map poly/mul
+		                  (list-head factors (poly/arity p))
+		                  (poly/make-vars (poly/arity p))))))
+
+
+;; Given polynomial P(x), substitute x = y+h and compute the resulting
+;;  polynomial Q(y) = P(y+h).  When a multivariate polynomial is
+;;  shifted, each shift must have the same arity as the given
+;;  polynomial... or a base constant.
+
+(comment
+  (define (poly/arg-shift p shifts)
+    (poly/horner p
+	               (map poly/add
+		                  (list-head shifts (poly/arity p))
+		                  (poly/make-vars (poly/arity p))))))
+
+;; ## GCD Related Things
+;;
 ;; Pseudo division produces only a remainder--no quotient.
 ;;  This can be used to generalize Euclid's algorithm for polynomials
 ;;  over a unique factorization domain (UFD).
@@ -805,6 +878,7 @@
     (operator-table o))
 
   (new-variables [_ arity]
+    ;; TODO use the implementation up above!
     (for [a (range arity)]
       (make arity [[(mapv #(if (= % a) 1 0)
                           (range arity))
@@ -824,26 +898,27 @@
 ;; quotient, remainder... TODO search for more functions!
 
 (defmethod g/square [::polynomial] [a] (poly:* a a))
+(defmethod g/abs [::polynomial] [a] (abs a))
 
-(defmethod g/mul [::v/number ::polynomial] [c p]
+(defmethod g/mul [::coeff ::polynomial] [c p]
   (map-coefficients #(g/* c %) p))
 
-(defmethod g/mul [::polynomial ::v/number] [p c]
+(defmethod g/mul [::polynomial ::coeff] [p c]
   (map-coefficients #(g/* % c) p))
 
-(defmethod g/add [::v/number ::polynomial] [c p]
+(defmethod g/add [::coeff ::polynomial] [c p]
   (poly:+ (make-constant (bare-arity p) c) p))
 
-(defmethod g/add [::polynomial ::v/number] [p c]
+(defmethod g/add [::polynomial ::coeff] [p c]
   (poly:+ p (make-constant (bare-arity p) c)))
 
-(defmethod g/sub [::v/number ::polynomial] [c p]
+(defmethod g/sub [::coeff ::polynomial] [c p]
   (poly:- (make-constant (bare-arity p) c) p))
 
-(defmethod g/sub [::polynomial ::v/number] [p c]
+(defmethod g/sub [::polynomial ::coeff] [p c]
   (poly:- p (make-constant (bare-arity p) c)))
 
-(defmethod g/div [::polynomial ::v/number] [p c]
+(defmethod g/div [::polynomial ::coeff] [p c]
   (map-coefficients #(g/divide % c) p))
 
 (defmethod g/expt [::polynomial ::v/native-integral] [b x] (expt b x))

@@ -22,26 +22,53 @@
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
             [clojure.test.check.clojure-test :refer [defspec]]
+            [com.gfredericks.test.chuck.clojure-test :refer [checking]
+             #?@(:cljs [:include-macros true])]
             [sicmutils.abstract.number]
             [sicmutils.expression :refer [variables-in expression-of]]
             [sicmutils.expression.analyze :as a]
+            [sicmutils.function :as f]
+            [sicmutils.generators :as sg]
+            [sicmutils.laws :as sl]
             [sicmutils.generic :as g]
             [sicmutils.modint :as modular]
             [sicmutils.polynomial :as p]
             [sicmutils.util :as u]
             [sicmutils.value :as v]))
 
-(deftest poly-core
-  (testing "kind"
-    (is (= ::p/polynomial (v/kind (p/make [])))))
+(deftest polynomial-type-tests
+  (checking "polynomials are both explicit polys and polynomial? == true" 100
+            [p (sg/polynomial)]
+            (is (p/explicit-polynomial? p))
+            (is (p/polynomial? p))
+            (is (= ::p/polynomial (v/kind p))))
 
-  (testing "zero"
+  (checking "any number (coefficient) is a polynomial." 100 [p sg/number]
+            (is (p/polynomial? p)))
+
+  (checking "IArity" 100 [p (sg/polynomial)]
+            (is (= (f/arity p)
+                   (p/arity p))))
+
+  (testing "dense make returns 0 for no entries or a zero first entry"
     (is (v/zero? (p/make [])))
     (is (v/zero? (p/make [0])))
-    (is (v/zero? (p/make [])))
-    (is (v/zero? (p/make 2 [])))
-    (is (v/zero? (p/make 2 [])))
     (is (not (v/zero? (p/make [1])))))
+
+  (checking "zero only if first entry is zero" 100
+            [arity gen/nat
+             x     sg/number]
+            (if (v/zero? x)
+              (is (v/zero? (p/make [x])))
+              (is (not (v/zero? (p/make [x])))))
+
+            (if (v/zero? x)
+              (is (v/zero? (p/make-constant arity x)))
+              (is (not (v/zero? (p/make-constant arity x))))))
+
+  (checking "zero-like" 100 [p (sg/polynomial)]
+            (is (v/zero?
+                 (v/zero-like p))))
 
   (testing "one"
     (is (not (v/one? (p/make []))))
@@ -54,129 +81,310 @@
     (is (v/one? (p/make [(p/make [1])])))
     (is (not (v/one? (p/make [(p/make [2])])))))
 
-  (testing "identity"
-    (is (v/identity? (p/make [0 1])))
+  (checking "one-like" 100 [p (sg/polynomial)]
+            (is (v/one?
+                 (v/one-like p))))
 
-    (testing "identity? is only supported for monomials."
-      (is (not (v/identity? (p/make []))))
-      (is (not (v/identity? (p/make [0]))))
-      (is (not (v/identity? (p/make 2 [[[1 0] 1]]))))))
+  (testing "one-like unit tests"
+    (is (= (p/make-constant 1 1)
+           (v/one-like (p/make [1 2 3]))))
 
-  (testing "make-constant"
-    (is (= (p/make [99]) (p/make-constant 1 99)))
-    (is (= (p/make 2 [[[0 0] 88]]) (p/make-constant 2 88)))
-    (is (= (p/make 3 [[[0 0 0] 77]]) (p/make-constant 3 77))))
+    (is (= (p/make-constant 2 1)
+           (v/one-like (p/make 2 [[[1 0] 1] [[2 1] 3]]))))
 
-  (testing "degree"
-    (is (= (p/degree (p/make [])) -1))
-    (is (= (p/degree (p/make [-1 1])) 1))
-    (is (= (p/degree (p/make [0 1])) 1))
-    (is (= (p/degree (p/make [-1 0 2])) 2))
-    (is (= (p/degree (p/make [-1 2 0])) 1))
-    (is (= (p/degree (p/make [0 0])) -1)))
+    (is (= (p/make-constant 3 1)
+           (v/one-like (p/make 3 [[[1 2 1] 4] [[0 1 0] 5]]))))
 
-  (testing "zero-like"
-    (is (= (p/make []) (v/zero-like (p/make [1 2 3]))))
-    (is (= (p/make 2 []) (v/zero-like (p/make 2 [[[1 0] 1] [[2 1] 3]]))))
-    (is (= (p/make 3 []) (v/zero-like (p/make 3 [[[1 2 1] 4] [[0 1 0] 5]])))))
-
-  (testing "one-like"
-    (is (= (p/make [1]) (v/one-like (p/make [1 2 3]))))
-    (is (= (p/make 2 [[[0 0] 1]]) (v/one-like (p/make 2 [[[1 0] 1] [[2 1] 3]]))))
-    (is (= (p/make 3 [[[0 0 0] 1]]) (v/one-like (p/make 3 [[[1 2 1] 4] [[0 1 0] 5]]))))
     (is (= (p/make 2 [[[0 0] 1]])
            (v/one-like (p/make 2 [])))
         "If we can't deduce the unit element from the zero polynomial over an
         unknown ring, assume it's 1"))
 
-  (testing "identity-like"
-    (is (= (p/make [0 1]) (v/identity-like (p/make []))))
-    (is (= (p/make [0 1]) (v/identity-like (p/make [1 2 3]))))
+  (testing "identity unit tests"
+    (is (v/identity? (p/make [0 1])))
+    (is (not (v/identity? (p/make []))))
+    (is (not (v/identity? (p/make [0]))))
+
+    (testing "identity? only returns true for monomials."
+      (is (v/identity? (p/poly:identity 1)))
+      (is (not (v/identity? (p/poly:identity 2 1))))))
+
+  (checking "identity-like (only on monomials)" 100
+            [p (sg/polynomial :arity 1)]
+            (is (v/identity?
+                 (v/identity-like p))))
+
+  (testing "identity-like unit tests"
+    (is (= (p/make [0 1])
+           (v/identity-like (p/make [0 0 0 1]))))
+
+    (is (= (p/make [0 1])
+           (v/identity-like (p/make [1 2 3]))))
+
     (is (thrown? #?(:clj AssertionError :cljs js/Error)
-                 (v/identity-like (p/make 2 [])))
+                 (v/identity-like (p/make-constant 10 1)))
         "identity-like is only supported on monomials."))
 
+  (testing "make-constant"
+    (is (= (p/make [99])
+           (p/make-constant 1 99)))
+
+    (is (= (p/make 2 [[[0 0] 88]])
+           (p/make-constant 2 88)))
+
+    (is (= (p/make 3 [[[0 0 0] 77]])
+           (p/make-constant 3 77))))
+
+  (testing "degree"
+    (is (= -1 (p/degree (p/make []))))
+    (is (= -1 (p/degree (p/make [0 0]))))
+    (is (= 1 (p/degree (p/make [-1 1]))))
+    (is (= 1 (p/degree (p/make [0 1]))))
+    (is (= 1 (p/degree (p/make [-1 2 0]))))
+    (is (= 2 (p/degree (p/make [-1 0 2]))))))
+
+(deftest arithmetic-tests
+  (testing "algebraic laws"
+    (sl/ring 50 (sg/polynomial :arity 3) "polynomial is a ring"
+             :commutative? true
+             :with-one? true)
+
+    (sl/ring 50 (sg/polynomial :arity 1) "polynomial arity 1 is a ring"
+             :commutative? true
+             :with-one? true))
+
   (testing "add constant"
-    (is (= (p/make [3 0 2]) (g/add (p/make [0 0 2]) (p/make [3]))))
-    (is (= (p/make [0 0 2]) (g/add (p/make [2 0 2]) (p/make [-2])))))
+    (is (= (p/make [3 0 2])
+           (g/add (p/make [0 0 2])
+                  (p/make-constant 3))))
 
-  (testing "add/sub"
-    (is (v/zero? (g/add (p/make [0 0 2]) (p/make [0 0 -2]))))
-    (is (= (p/make []) (g/add (p/make [0 0 2]) (p/make [0 0 -2]))))
-    (is (= (p/make [3]) (g/add (p/make [3 0 2]) (p/make [0 0 -2]))))
-    (is (= (p/make [-1 1]) (g/add (p/make [0 1]) (p/make [-1]))))
-    (is (v/zero? (g/sub (p/make [0 0 2]) (p/make [0 0 2]))))
-    (is (= (p/make [-3]) (g/sub (p/make [0 0 2]) (p/make [3 0 2]))))
-    (is (= (p/make [0 1 2]) (g/sub (p/make [3 1 2]) (p/make [3]))))
-    (is (= (p/make [-2 -2 -1]) (g/sub (p/make [1]) (p/make [3 2 1]))))
-    (is (= (p/make [0 0 1 0 1 -1]) (g/sub (p/make [1 0 1 0 1]) (p/make [1 0 0 0 0 1]))))
-    (is (= (p/make [0 0 -1 0 -1 1]) (g/sub (p/make [1 0 0 0 0 1]) (p/make [1 0 1 0 1]))))
-    (is (= (p/make [-1 -2 -3]) (p/negate (p/make [1 2 3])))))
+    (is (= (p/make [0 0 2])
+           (g/add (p/make [2 0 2])
+                  (p/make-constant -2)))))
 
-  (testing "with symbols"
-    (is (= (p/make [(g/+ 'a 'c) (g/+ 'b 'd) 'c]) (g/add (p/make '[a b c]) (p/make '[c d])))))
+  (checking "dense add, sub, negate" 100
+            [[l r] (gen/sized
+                    (fn [size]
+                      (gen/tuple
+                       (gen/vector sg/small-integral size)
+                       (gen/vector sg/small-integral size))))]
+            (is (= (p/make (map g/+ l r))
+                   (g/+ (p/make l)
+                        (p/make r))))
+
+            (is (= (p/make (map g/- l r))
+                   (g/- (p/make l)
+                        (p/make r))))
+
+            (is (= (p/make (map g/negate l))
+                   (g/negate (p/make l)))))
+
+  (testing "add/sub unit tests"
+    (is (v/zero?
+         (g/add (p/make [0 0 2])
+                (p/make [0 0 -2]))))
+
+    (is (= (p/make [])
+           (g/add (p/make [0 0 2])
+                  (p/make [0 0 -2]))))
+
+    (is (= (p/make [3])
+           (g/add (p/make [3 0 2])
+                  (p/make [0 0 -2]))))
+
+    (is (= (p/make [-1 1])
+           (g/add (p/make [0 1])
+                  (p/make [-1]))))
+
+    (is (v/zero?
+         (g/sub (p/make [0 0 2])
+                (p/make [0 0 2]))))
+
+    (is (= (p/make [-3])
+           (g/sub (p/make [0 0 2])
+                  (p/make [3 0 2]))))
+
+    (is (= (p/make [0 1 2])
+           (g/sub (p/make [3 1 2])
+                  (p/make [3]))))
+
+    (is (= (p/make [-2 -2 -1])
+           (g/sub (p/make [1])
+                  (p/make [3 2 1]))))
+
+    (is (= (p/make [0 0 1 0 1 -1])
+           (g/sub (p/make [1 0 1 0 1])
+                  (p/make [1 0 0 0 0 1]))))
+
+    (is (= (p/make [0 0 -1 0 -1 1])
+           (g/sub (p/make [1 0 0 0 0 1])
+                  (p/make [1 0 1 0 1]))))
+
+    (is (= (p/make [-1 -2 -3])
+           (p/negate (p/make [1 2 3])))))
+
+  (testing "addition with symbols"
+    (is (= (p/make [(g/+ 'a 'c) (g/+ 'b 'd) 'c])
+           (g/add (p/make '[a b c])
+                  (p/make '[c d])))))
 
   (testing "mul"
-    (is (= (p/make []) (g/mul (p/make [1 2 3]) (p/make [0]))))
-    (is (= (p/make []) (g/mul (p/make [0]) (p/make [1 2 3]))))
-    (is (= (p/make []) (g/mul (p/make []) (p/make [1 2 3]))))
-    (is (= (p/make [1 2 3]) (g/mul (p/make [1 2 3]) (p/make [1]))))
-    (is (= (p/make [1 2 3]) (g/mul (p/make [1]) (p/make [1 2 3]))))
-    (is (= (p/make [3 6 9]) (g/mul (p/make [1 2 3]) (p/make [3]))))
-    (is (= (p/make [0 1 2 3]) (g/mul (p/make [0 1]) (p/make [1 2 3]))))
-    (is (= (p/make [0 -1 -2 -3]) (g/mul (p/make [0 -1]) (p/make [1 2 3]))))
-    (is (= (p/make [-1 0 1]) (g/mul (p/make [1 1]) (p/make [-1 1]))))
-    (is (= (p/make [1 3 3 1]) (g/mul (p/make [1 1]) (g/mul (p/make [1 1]) (p/make [1 1])))))
-    (is (= (p/make [1 -4 6 -4 1]) (g/mul (g/mul (p/make [-1 1]) (p/make [-1 1]))
-                                         (g/mul (p/make [-1 1]) (p/make [-1 1]))))))
+    (is (= (p/make [])
+           (g/mul (p/make [1 2 3])
+                  (p/make [0]))))
 
-  (testing "div"
-    (is (= [(p/make [1 1]) (p/make [])]
-           (p/divide (p/make [-1 0 1]) (p/make [-1 1]))))
-    (is (= [(p/make [-10 1]) (p/make [-32 -21])]
-           (p/divide (p/make [-42 0 -12 1]) (p/make [1 -2 1]))))
-    (is (= [(p/make [3 1 1]) (p/make [5])]
-           (p/divide (p/make [-4 0 -2 1]) (p/make [-3 1]))))
-    (is (= [(p/make [-5 0 3]) (p/make [60 -27 -11])]
-           (p/divide (p/make [-45 18 72 -27 -27 0 9]) (p/make [21 -9 -4 0 3]))))
+    (is (= (p/make [])
+           (g/mul (p/make [0])
+                  (p/make [1 2 3]))))
+    (is (= (p/make [])
+           (g/mul (p/make [])
+                  (p/make [1 2 3]))))
+
+    (is (= (p/make [1 2 3])
+           (g/mul (p/make [1 2 3])
+                  (p/make [1]))))
+
+    (is (= (p/make [1 2 3])
+           (g/mul (p/make [1])
+                  (p/make [1 2 3]))))
+
+    (is (= (p/make [3 6 9])
+           (g/mul (p/make [1 2 3])
+                  (p/make [3]))))
+
+    (is (= (p/make [0 1 2 3])
+           (g/mul (p/make [0 1])
+                  (p/make [1 2 3]))))
+
+    (is (= (p/make [0 -1 -2 -3])
+           (g/mul (p/make [0 -1])
+                  (p/make [1 2 3]))))
+
+    (is (= (p/make [-1 0 1])
+           (g/mul (p/make [1 1])
+                  (p/make [-1 1]))))
+
+    (is (= (p/make [1 3 3 1])
+           (g/mul (p/make [1 1])
+                  (g/mul (p/make [1 1])
+                         (p/make [1 1])))))
+
+    (is (= (p/make [1 -4 6 -4 1])
+           (g/mul (g/mul (p/make [-1 1])
+                         (p/make [-1 1]))
+                  (g/mul (p/make [-1 1])
+                         (p/make [-1 1]))))))
+
+  (testing "div, psuedo-remainder"
+    (is (= [(p/make [1 1])
+            (p/make [])]
+           (p/divide (p/make [-1 0 1])
+                     (p/make [-1 1]))))
+
+    (is (= [(p/make [-10 1])
+            (p/make [-32 -21])]
+           (p/divide (p/make [-42 0 -12 1])
+                     (p/make [1 -2 1]))))
+
+    (is (= [(p/make [3 1 1])
+            (p/make [5])]
+           (p/divide (p/make [-4 0 -2 1])
+                     (p/make [-3 1]))))
+
+    (is (= [(p/make [-5 0 3])
+            (p/make [60 -27 -11])]
+           (p/divide (p/make [-45 18 72 -27 -27 0 9])
+                     (p/make [21 -9 -4 0 3]))))
+
     (let [U (p/make [-5 2 8 -3 -3 0 1 0 1])
           V (p/make [21 -9 -4 0 5 0 3])
           [pr d] (p/pseudo-remainder U V)]
-      #?(:clj (is (= [(p/make [-2/9 0 1/3]) (p/make [-1/3 0 1/9 0 -5/9])] (p/divide U V))))
-      (is (= [(p/make [-3 0 1 0 -5]) 2] [pr d]))
-      (is (= (p/make []) (g/sub (g/mul (p/make [(g/expt 3 d)]) U) (g/add (g/mul (p/make [-2 0 3]) V) pr)))))
-    ;; examples from http://www.mathworks.com/help/symbolic/mupad_ref/pdivide.html
-    (let [p (p/make [1 1 0 1])
-          q (p/make [1 1 3])]
-      (is (= [(p/make [10 7]) 2] (p/pseudo-remainder p q))))
-    (let [p (p/make [3 0 4])
-          q (p/make [2 2])]
-      (is (= [(p/make [28]) 2] (p/pseudo-remainder p q))))
-    (is (= [(p/make 2 []) (p/make 2 [[[2 1] 1] [[1 2] 1]])]
-           (p/divide (p/make 2 [[[2 1] 1] [[1 2] 1]]) (p/make 2 [[[1 2] 1]]))))
-    (is (= [(p/make [1]) (p/make [])] (p/divide (p/make [3]) (p/make [3]))))
-    (is (= [(p/make [0]) 1] (p/pseudo-remainder (p/make [7]) (p/make [2])))))
+      #?(:clj (is (= [(p/make [-2/9 0 1/3])
+                      (p/make [-1/3 0 1/9 0 -5/9])]
+                     (p/divide U V))))
+
+      (is (= [(p/make [-3 0 1 0 -5]) 2]
+             [pr d]))
+
+      (is (= (p/make [])
+             (g/sub (g/mul (p/make [(g/expt 3 d)]) U)
+                    (g/add (g/mul (p/make [-2 0 3]) V)
+                           pr)))))
+
+    (testing "examples from http://www.mathworks.com/help/symbolic/mupad_ref/pdivide.html"
+      (let [p (p/make [1 1 0 1])
+            q (p/make [1 1 3])]
+        (is (= [(p/make [10 7]) 2]
+               (p/pseudo-remainder p q))))
+
+      (let [p (p/make [3 0 4])
+            q (p/make [2 2])]
+        (is (= [(p/make [28]) 2]
+               (p/pseudo-remainder p q))))
+
+      (is (= [(p/make 2 []) (p/make 2 [[[2 1] 1] [[1 2] 1]])]
+             (p/divide (p/make 2 [[[2 1] 1] [[1 2] 1]])
+                       (p/make 2 [[[1 2] 1]]))))
+
+      (is (= [(p/make [1]) (p/make [])]
+             (p/divide (p/make [3])
+                       (p/make [3]))))
+
+      (is (= [(p/make [0]) 1]
+             (p/pseudo-remainder (p/make [7])
+                                 (p/make [2]))))))
 
   (testing "expt"
     (let [x+1 (p/make [1 1])]
-      (is (= (p/make [1]) (g/expt x+1 0)))
-      (is (= x+1 (g/expt x+1 1)))
-      (is (= (p/make [1 2 1]) (g/expt x+1 2)))
-      (is (= (p/make [1 3 3 1]) (g/expt x+1 3)))
-      (is (= (p/make [1 4 6 4 1]) (g/expt x+1 4)))
-      (is (= (p/make [1 5 10 10 5 1]) (g/expt x+1 5)))))
+      (is (= (p/make [1])
+             (g/expt x+1 0)))
 
-  (testing "other coefficient rings: GF(2)"
+      (is (= x+1 (g/expt x+1 1)))
+
+      (is (= (p/make [1 2 1])
+             (g/expt x+1 2)))
+
+      (is (= (p/make [1 3 3 1])
+             (g/expt x+1 3)))
+
+      (is (= (p/make [1 4 6 4 1])
+             (g/expt x+1 4)))
+
+      (is (= (p/make [1 5 10 10 5 1])
+             (g/expt x+1 5)))))
+  )
+
+(deftest poly-core
+  (testing "other coefficient rings: GF(11)"
+    (sl/ring 50 (sg/polynomial
+                 :arity 1
+                 :coefs (gen/fmap #(modular/make % 11)
+                                  gen/small-integer))
+             "polynomial is a ring"
+             :commutative? true
+             :with-one? true))
+
+  (testing "other coefficient rings, unit: GF(2)"
     (let [mod2 #(modular/make % 2)
-          x0 (mod2 0)
-          x1 (mod2 1)
-          P (p/make [x1 x0 x1])]
-      (is (= (p/make [x1 x0 x0 x0 x1]) (g/expt P 2)))
-      (is (= (p/make [x1 x0 x1 x0 x1 x0 x1]) (g/expt P 3)))
-      (is (= (p/make [x1 x0 x0 x0 x0 x0 x0 x0 x1]) (g/mul (g/expt P 3) P)))
-      (is (= (p/make []) (g/sub P P)))
-      (is (= (p/make []) (g/add P P)))
-      (is (= (p/make [x0 x0 x1]) (g/add P (p/make [1]))))))
+          x0   (mod2 0)
+          x1   (mod2 1)
+          P    (p/make [x1 x0 x1])]
+      (is (= (p/make [x1 x0 x0 x0 x1])
+             (g/expt P 2)))
+
+      (is (= (p/make [x1 x0 x1 x0 x1 x0 x1])
+             (g/expt P 3)))
+
+      (is (= (p/make [x1 x0 x0 x0 x0 x0 x0 x0 x1])
+             (g/mul (g/expt P 3) P)))
+
+      (is (= (p/make [])
+             (g/sub P P)))
+      (is (= (p/make [])
+             (g/add P P)))
+
+      (is (= (p/make [x0 x0 x1])
+             (g/add P (p/make [1]))))))
 
   (testing "CRC polynomials"
     ;; https://en.wikipedia.org/wiki/Computation_of_cyclic_redundancy_checks
@@ -194,9 +402,13 @@
           T (p/make [o o i o i o i])
           Tx16 (g/mul x16 T)
           [_ r2] (p/divide Tx16 CRC-16-CCITT)]
-      (is (= (p/make [o i o o o i o i]) r1))
-      (is (= (p/make [i o o o i i i o o i o i i]) r2))))
+      (is (= (p/make [o i o o o i o i])
+             r1))
 
+      (is (= (p/make [i o o o i i i o o i o i i])
+             r2))))
+
+  ;; TODO move up to top.
   (testing "monomial order"
     (let [x3 [3 0 0]
           x2z2 [2 0 2]
@@ -204,9 +416,12 @@
           z2 [0 0 2]
           monomials [x3 x2z2 xy2z z2]
           monomial-sort #(sort-by identity % monomials)]
-      (is (= [z2 xy2z x2z2 x3] (monomial-sort p/lex-order)))
-      (is (= [z2 x3 x2z2 xy2z] (monomial-sort p/graded-reverse-lex-order)))
-      (is (= [z2 x3 xy2z x2z2] (monomial-sort p/graded-lex-order))))))
+      (is (= [z2 xy2z x2z2 x3]
+             (monomial-sort p/lex-order)))
+      (is (= [z2 x3 x2z2 xy2z]
+             (monomial-sort p/graded-reverse-lex-order)))
+      (is (= [z2 x3 xy2z x2z2]
+             (monomial-sort p/graded-lex-order))))))
 
 (def poly-analyzer
   (p/->PolynomialAnalyzer))
@@ -273,15 +488,20 @@
            (p/partial-derivatives U)))))
 
 (deftest poly-as-simplifier
+  ;; TODO move up and test!
   (testing "arity"
-    (let [^sicmutils.polynomial.Polynomial p (p/make [0 1])]
-      (is (= 1 (.-arity p)))))
+    (let [p (p/make [0 1])]
+      (is (= 1 (p/arity p)))))
 
+  ;; TODO move up, test without analyzer too.
   (testing "make-vars"
-    (is (= (list (p/make [0 1])) (a/new-variables poly-analyzer 1)))
+    (is (= [(p/make [0 1])]
+           (a/new-variables poly-analyzer 1)))
+
     (is (= [(p/make 3 [[[1 0 0] 1]])
             (p/make 3 [[[0 1 0] 1]])
-            (p/make 3 [[[0 0 1] 1]])] (a/new-variables poly-analyzer 3))))
+            (p/make 3 [[[0 0 1] 1]])]
+           (a/new-variables poly-analyzer 3))))
 
   (testing "expr"
     (let [exp1 (expression-of (g/* (g/+ 1 'x) (g/+ -3 'x)))
@@ -329,6 +549,7 @@
       (is (= '(+ b (* -1 f)) (poly-simp '(- (+ a b c) (+ a c f)))))
       (is (= '(+ (* -1 b) f) (poly-simp '(- (+ a c f) (+ c b a))))))))
 
+;; TODO replace with new generators.
 (defn generate-poly
   [arity]
   (gen/fmap #(p/make arity %)
@@ -344,6 +565,7 @@
 
 (def ^:private num-tests 30)
 
+;; TODO move into arithmetic.
 (defspec ^:long p+p=2p num-tests
   (prop/for-all [p (gen/bind gen/nat generate-poly)]
                 (= (g/add p p)
@@ -361,18 +583,21 @@
                     (and (v/zero? R)
                          (= Q p))))))
 
+;; TODO this is covered already.
 (defspec ^:long p+q=q+p num-tests
   (gen/let [arity gen/nat]
     (prop/for-all [p (generate-poly arity)
                    q (generate-poly arity)]
                   (= (g/add p q) (g/add q p)))))
 
+;; TODO also covered already by ring tests.
 (defspec ^:long pq=qp num-tests
   (gen/let [arity gen/nat]
     (prop/for-all [p (generate-poly arity)
                    q (generate-poly arity)]
                   (= (g/mul p q) (g/mul q p)))))
 
+;; TODO check that distributive law is covered by ring test.
 (defspec ^:long p*_q+r_=p*q+p*r num-tests
   (gen/let [arity gen/nat]
     (prop/for-all [p (generate-poly arity)

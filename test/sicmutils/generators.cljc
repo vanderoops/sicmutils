@@ -15,6 +15,7 @@
             [sicmutils.matrix :as m]
             [sicmutils.modint :as mi]
             [sicmutils.numsymb :as sym]
+            [sicmutils.polynomial :as poly]
             [sicmutils.ratio :as r]
             [sicmutils.series :as ss]
             [sicmutils.structure :as s]
@@ -73,11 +74,13 @@
                       (+ x 0.5)
                       x))))))
 
+(def small-integral
+  (gen/one-of [native-integral long integer]))
+
 (def any-integral
-  (gen/one-of [native-integral
+  (gen/one-of [small-integral
                bigint
-               long
-               integer]))
+               #?@(:clj [biginteger])]))
 
 (def ratio
   "Generates a small ratio (or integer) using gen/small-integer. Shrinks
@@ -284,6 +287,31 @@
                (d/differential? tangent-part) tangent-part
                :else (d/from-terms [(#'d/make-term [] primal)
                                     (#'d/make-term [0] 1)])))))))
+
+;; ## Polynomials
+
+(defn polynomial
+  "Returns a generator that produces instances of [[polynomial.Polynomial]].
+
+  `arity` can be a number or a generator."
+  [& {:keys [arity coefs nonzero?]
+      :or {nonzero? true
+           arity gen/nat
+           coefs small-integral}}]
+  (let [arity (if (integer? arity)
+                (gen/return arity)
+                arity)
+        expts (gen/bind arity #(gen/vector gen/nat arity))
+        term  (gen/tuple expts any-integral)
+        pgen  (gen/fmap (fn [terms]
+                          (let [p (poly/make arity terms)]
+                            (if (poly/explicit-polynomial? p)
+                              p
+                              (poly/make-constant arity p))))
+                        (gen/vector term))]
+    (if nonzero?
+      (gen/such-that (complement v/zero?) pgen)
+      pgen)))
 
 ;; ## Custom Almost-Equality
 
