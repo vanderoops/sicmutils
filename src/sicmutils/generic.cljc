@@ -178,11 +178,13 @@
   ([] 1)
   ([x] x)
   ([x y]
-   (cond (and (v/numerical? x) (v/zero? x)) (v/zero-like y)
-         (and (v/numerical? y) (v/zero? y)) (v/zero-like x)
-         (v/one? x) y
-         (v/one? y) x
-         :else (mul x y)))
+   (let [numx? (v/numerical? x)
+         numy? (v/numerical? y)]
+     (cond (and numx? (v/zero? x)) (v/zero-like y)
+           (and numy? (v/zero? y)) (v/zero-like x)
+           (and numx? (v/one? x)) y
+           (and numy? (v/one? y)) x
+           :else (mul x y))))
   ([x y & more]
    (reduce * (* x y) more)))
 

@@ -351,24 +351,23 @@
              (g/expt x+1 4)))
 
       (is (= (p/make [1 5 10 10 5 1])
-             (g/expt x+1 5)))))
-  )
+             (g/expt x+1 5))))))
 
 (deftest poly-core
   (testing "other coefficient rings: GF(11)"
-    (sl/ring 50 (sg/polynomial
-                 :arity 1
-                 :coefs (gen/fmap #(modular/make % 11)
-                                  gen/small-integer))
+    (sl/ring 100 (sg/polynomial
+                  :arity 1
+                  :coefs (gen/fmap #(modular/make % 11)
+                                   gen/small-integer))
              "polynomial is a ring"
              :commutative? true
              :with-one? true))
 
   (testing "other coefficient rings, unit: GF(2)"
     (let [mod2 #(modular/make % 2)
-          x0   (mod2 0)
-          x1   (mod2 1)
-          P    (p/make [x1 x0 x1])]
+          x0 (mod2 0)
+          x1 (mod2 1)
+          P (p/make [x1 x0 x1])]
       (is (= (p/make [x1 x0 x0 x0 x1])
              (g/expt P 2)))
 
