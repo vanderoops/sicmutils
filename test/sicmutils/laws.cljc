@@ -237,8 +237,9 @@
   (let [mul-check (if with-one?
                     multiplicative-monoid
                     multiplicative-semigroup)]
-    (additive-group opts generator type-name :commutative? true))
-  (multiplicative-semigroup opts generator type-name :commutative? commutative?))
+    (additive-group opts generator type-name :commutative? true)
+    (mul-check opts generator type-name :commutative? commutative?)
+    (mul-distributes-over-add opts generator type-name)))
 
 (defn field
   "A field is a type `a` that:
@@ -252,7 +253,7 @@
       a * (b + c) == (a * b) + (a * c)
       (b + c) * a == (b * a) + (c * a)
 
-  if `:skew? true` is passed, `field` will drop the condition that the `g/mul`
+  p  if `:skew? true` is passed, `field` will drop the condition that the `g/mul`
   implementation is commutative.
 
   A type `a` with this structure is called a \"skew field\", or \"division

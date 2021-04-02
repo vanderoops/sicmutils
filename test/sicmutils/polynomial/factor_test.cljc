@@ -31,7 +31,8 @@
 
 (use-fixtures :each hermetic-simplify-fixture)
 
-(def poly-analyzer (p/->PolynomialAnalyzer))
+(def poly-analyzer
+  (p/->PolynomialAnalyzer))
 
 (defn ->poly [x]
   (a/expression-> poly-analyzer x (fn [p _] p)))

@@ -36,6 +36,21 @@
             [sicmutils.util :as u]
             [sicmutils.value :as v]))
 
+(deftest monomial-ordering-tests
+  (testing "monomial orderings"
+    (let [x3 [3 0 0]
+          x2z2 [2 0 2]
+          xy2z [1 2 1]
+          z2 [0 0 2]
+          monomials [x3 x2z2 xy2z z2]
+          monomial-sort #(sort-by identity % monomials)]
+      (is (= [z2 xy2z x2z2 x3]
+             (monomial-sort p/lex-order)))
+      (is (= [z2 x3 x2z2 xy2z]
+             (monomial-sort p/graded-reverse-lex-order)))
+      (is (= [z2 x3 xy2z x2z2]
+             (monomial-sort p/graded-lex-order))))))
+
 (deftest polynomial-type-tests
   (checking "polynomials are both explicit polys and polynomial? == true" 100
             [p (sg/polynomial)]
@@ -48,7 +63,7 @@
 
   (checking "IArity" 100 [p (sg/polynomial)]
             (is (= (f/arity p)
-                   (p/arity p))))
+                   [:exactly (p/arity p)])))
 
   (testing "dense make returns 0 for no entries or a zero first entry"
     (is (v/zero? (p/make [])))
@@ -126,16 +141,33 @@
         "identity-like is only supported on monomials."))
 
   (testing "make-constant"
-    (is (= (p/make [99])
-           (p/make-constant 1 99)))
+    (let [c (p/make-constant 1 99)](is (p/explicit-polynomial? c))
+         (is (p/explicit-polynomial? c))
+         (is (= c 99))
+         (is (v/= 99 c)))
 
-    (is (= (p/make 2 [[[0 0] 88]])
-           (p/make-constant 2 88)))
+    (let [c (p/make-constant 2 88)]
+      (is (p/explicit-polynomial? c))
+      (is (= c 88))
+      (is (v/= 88 c)))
 
-    (is (= (p/make 3 [[[0 0 0] 77]])
-           (p/make-constant 3 77))))
+    (let [c (p/make-constant 3 77)]
+      (is (p/explicit-polynomial? c))
+      (is (= c 77))
+      (is (v/= 77 c))))
+
+  (checking "terms, lead term" 100 [x sg/any-integral]
+            (is (= (p/terms x)
+                   (p/terms (p/make-constant 0 x))))
+
+            (is (= (p/lead-term x)
+                   (p/lead-term (p/make-constant 0 x))))
+
+            (is (= (p/lead-coefficient x)
+                   (p/lead-coefficient (p/make-constant x)))))
 
   (testing "degree"
+    (is (= -1 (p/degree (p/make-constant 1 0))))
     (is (= -1 (p/degree (p/make []))))
     (is (= -1 (p/degree (p/make [0 0]))))
     (is (= 1 (p/degree (p/make [-1 1]))))
@@ -228,6 +260,21 @@
            (g/add (p/make '[a b c])
                   (p/make '[c d])))))
 
+  (checking "p+p=2p" 30 [p (sg/polynomial)]
+            (is (= (g/add p p)
+                   (g/mul p (p/make-constant (p/bare-arity p) 2)))))
+
+  (checking "pq-div-p=q" 30
+            [[p q] (gen/let [arity gen/nat]
+                     (gen/tuple (sg/polynomial :arity arity)
+                                (sg/polynomial :arity arity
+                                               :nonzero? true)))]
+            (let [p*q (g/mul p q)
+                  [Q R] (p/divide p*q q)]
+              (is (p/divisible? p*q q))
+              (is (v/zero? R))
+              (is (= p Q))))
+
   (testing "mul"
     (is (= (p/make [])
            (g/mul (p/make [1 2 3])
@@ -275,6 +322,25 @@
                   (g/mul (p/make [-1 1])
                          (p/make [-1 1]))))))
 
+  (testing "expt"
+    (let [x+1 (p/make [1 1])]
+      (is (= (p/make [1])
+             (g/expt x+1 0)))
+
+      (is (= x+1 (g/expt x+1 1)))
+
+      (is (= (p/make [1 2 1])
+             (g/expt x+1 2)))
+
+      (is (= (p/make [1 3 3 1])
+             (g/expt x+1 3)))
+
+      (is (= (p/make [1 4 6 4 1])
+             (g/expt x+1 4)))
+
+      (is (= (p/make [1 5 10 10 5 1])
+             (g/expt x+1 5)))))
+
   (testing "div, psuedo-remainder"
     (is (= [(p/make [1 1])
             (p/make [])]
@@ -299,8 +365,14 @@
     (let [U (p/make [-5 2 8 -3 -3 0 1 0 1])
           V (p/make [21 -9 -4 0 5 0 3])
           [pr d] (p/pseudo-remainder U V)]
-      #?(:clj (is (= [(p/make [-2/9 0 1/3])
-                      (p/make [-1/3 0 1/9 0 -5/9])]
+      #?(:clj (is (= [(p/make [#sicm/ratio -2/9
+                               0
+                               #sicm/ratio 1/3])
+                      (p/make [#sicm/ratio -1/3
+                               0
+                               #sicm/ratio 1/9
+                               0
+                               #sicm/ratio -5/9])]
                      (p/divide U V))))
 
       (is (= [(p/make [-3 0 1 0 -5]) 2]
@@ -326,44 +398,24 @@
              (p/divide (p/make 2 [[[2 1] 1] [[1 2] 1]])
                        (p/make 2 [[[1 2] 1]]))))
 
-      (is (= [(p/make [1]) (p/make [])]
-             (p/divide (p/make [3])
-                       (p/make [3]))))
+      (is (= [1 0] (p/divide (p/make [3])
+                             (p/make [3]))))
 
-      (is (= [(p/make [0]) 1]
-             (p/pseudo-remainder (p/make [7])
-                                 (p/make [2]))))))
-
-  (testing "expt"
-    (let [x+1 (p/make [1 1])]
-      (is (= (p/make [1])
-             (g/expt x+1 0)))
-
-      (is (= x+1 (g/expt x+1 1)))
-
-      (is (= (p/make [1 2 1])
-             (g/expt x+1 2)))
-
-      (is (= (p/make [1 3 3 1])
-             (g/expt x+1 3)))
-
-      (is (= (p/make [1 4 6 4 1])
-             (g/expt x+1 4)))
-
-      (is (= (p/make [1 5 10 10 5 1])
-             (g/expt x+1 5))))))
+      (is (= [0 1] (p/pseudo-remainder
+                    (p/make-constant 7)
+                    (p/make-constant 2)))))))
 
 (deftest poly-core
   (testing "other coefficient rings: GF(11)"
-    (sl/ring 100 (sg/polynomial
-                  :arity 1
-                  :coefs (gen/fmap #(modular/make % 11)
-                                   gen/small-integer))
+    (sl/ring 50 (sg/polynomial
+                 :arity 1
+                 :coefs (gen/fmap #(modular/make % 11)
+                                  gen/small-integer))
              "polynomial is a ring"
              :commutative? true
              :with-one? true))
 
-  (testing "other coefficient rings, unit: GF(2)"
+  (testing "other coefficient rings, unit: GF(2), unit"
     (let [mod2 #(modular/make % 2)
           x0 (mod2 0)
           x1 (mod2 1)
@@ -405,22 +457,7 @@
              r1))
 
       (is (= (p/make [i o o o i i i o o i o i i])
-             r2))))
-
-  ;; TODO move up to top.
-  (testing "monomial order"
-    (let [x3 [3 0 0]
-          x2z2 [2 0 2]
-          xy2z [1 2 1]
-          z2 [0 0 2]
-          monomials [x3 x2z2 xy2z z2]
-          monomial-sort #(sort-by identity % monomials)]
-      (is (= [z2 xy2z x2z2 x3]
-             (monomial-sort p/lex-order)))
-      (is (= [z2 x3 x2z2 xy2z]
-             (monomial-sort p/graded-reverse-lex-order)))
-      (is (= [z2 x3 xy2z x2z2]
-             (monomial-sort p/graded-lex-order))))))
+             r2)))))
 
 (def poly-analyzer
   (p/->PolynomialAnalyzer))
@@ -433,8 +470,12 @@
     (let [p (->poly '(+ 2 (* x 3)))]
       (is (= 14 (p/evaluate p [4])))
       (is (= 11 (p/evaluate p [3 2]))))
-    (is (= 256 (p/evaluate (->poly '(expt x 8)) [2])))
-    (is (= 272 (p/evaluate (->poly '(+ (expt x 4) (expt x 8))) [2]))))
+
+    (is (= 256 (-> (->poly '(expt x 8))
+                   (p/evaluate [2]))))
+
+    (is (= 272 (-> (->poly '(+ (expt x 4) (expt x 8)))
+                   (p/evaluate [2])))))
 
   (testing "arity 2"
     (let [p (->poly '(expt (+ x y) 2))]
@@ -456,7 +497,7 @@
     (let [p (->poly '(expt (- x0 x1 x2 x3 x4 x5 x6 x7 x8 x9) 3))]
       (is (= 216 (p/evaluate p [10 1 2 1 2 -3 1 -2 -1 3])))))
 
-  (testing "constant polys"
+  (testing "constant polynomial evaluation"
     (let [p1 (p/make [3])
           p2 (p/make 2 [[[0 0] 5]])
           p3 (p/make 3 [[[1 0 0] 1]])
@@ -495,12 +536,12 @@
   ;; TODO move up, test without analyzer too.
   (testing "make-vars"
     (is (= [(p/make [0 1])]
-           (a/new-variables poly-analyzer 1)))
+           (p/new-variables 1)))
 
     (is (= [(p/make 3 [[[1 0 0] 1]])
             (p/make 3 [[[0 1 0] 1]])
             (p/make 3 [[[0 0 1] 1]])]
-           (a/new-variables poly-analyzer 3))))
+           (p/new-variables 3))))
 
   (testing "expr"
     (let [exp1 (expression-of (g/* (g/+ 1 'x) (g/+ -3 'x)))
@@ -548,80 +589,28 @@
       (is (= '(+ b (* -1 f)) (poly-simp '(- (+ a b c) (+ a c f)))))
       (is (= '(+ (* -1 b) f) (poly-simp '(- (+ a c f) (+ c b a))))))))
 
-;; TODO replace with new generators.
-(defn generate-poly
-  [arity]
-  (gen/fmap #(p/make arity %)
-            (gen/vector
-             (gen/tuple
-              (gen/vector gen/nat arity)
-              gen/small-integer))))
+(deftest lower-raise-tests
+  (checking "lower-and-raise-arity-are-inverse" 30
+            [p (gen/let [arity (gen/choose 2 10)]
+                 (sg/polynomial :arity arity
+                                :nonzero? true))]
+            (is (= p (p/raise-arity
+                      (p/lower-arity p))))))
 
-(defn generate-nonzero-poly
-  [arity]
-  (gen/such-that (complement v/zero?)
-                 (generate-poly arity)))
+(deftest evaluation-homomorphism-tests
+  (checking "evaluation-homomorphism" 30
+            [[p q xs] (gen/let [arity (gen/choose 1 6)]
+                        (gen/tuple
+                         (sg/polynomial :arity arity)
+                         (sg/polynomial :arity arity)
+                         (gen/vector sg/bigint arity)))]
+            (is (= (u/bigint
+                    (g/mul (p/evaluate p xs)
+                           (p/evaluate q xs)))
+                   (u/bigint
+                    (p/evaluate (g/mul p q) xs)))))
 
-(def ^:private num-tests 30)
 
-;; TODO move into arithmetic.
-(defspec ^:long p+p=2p num-tests
-  (prop/for-all [p (gen/bind gen/nat generate-poly)]
-                (= (g/add p p)
-                   (g/mul p (p/make-constant (.-arity p) 2)))))
-
-(defspec ^:long p-p=0 num-tests
-  (prop/for-all [p (gen/bind gen/nat generate-poly)]
-                (v/zero? (g/sub p p))))
-
-(defspec ^:long pq-div-p=q num-tests
-  (gen/let [arity gen/nat]
-    (prop/for-all [p (generate-poly arity)
-                   q (generate-nonzero-poly arity)]
-                  (let [[Q R] (p/divide (g/mul p q) q)]
-                    (and (v/zero? R)
-                         (= Q p))))))
-
-;; TODO this is covered already.
-(defspec ^:long p+q=q+p num-tests
-  (gen/let [arity gen/nat]
-    (prop/for-all [p (generate-poly arity)
-                   q (generate-poly arity)]
-                  (= (g/add p q) (g/add q p)))))
-
-;; TODO also covered already by ring tests.
-(defspec ^:long pq=qp num-tests
-  (gen/let [arity gen/nat]
-    (prop/for-all [p (generate-poly arity)
-                   q (generate-poly arity)]
-                  (= (g/mul p q) (g/mul q p)))))
-
-;; TODO check that distributive law is covered by ring test.
-(defspec ^:long p*_q+r_=p*q+p*r num-tests
-  (gen/let [arity gen/nat]
-    (prop/for-all [p (generate-poly arity)
-                   q (generate-poly arity)
-                   r (generate-poly arity)]
-                  (= (g/mul p (g/add q r))
-                     (g/add (g/mul p q) (g/mul p r))))))
-
-(defspec ^:long lower-and-raise-arity-are-inverse num-tests
-  (prop/for-all [p (gen/bind (gen/choose 2 10) generate-nonzero-poly)]
-                (= p (p/raise-arity (p/lower-arity p)))))
-
-(defspec ^:long evaluation-homomorphism num-tests
-  (let [gen-bigint (gen/fmap u/bigint gen/small-integer)]
-    (gen/let [arity (gen/choose 1 6)]
-      (prop/for-all [p (generate-poly arity)
-                     q (generate-poly arity)
-                     xs (gen/vector gen-bigint arity)]
-                    (= (u/bigint
-                        (g/mul (p/evaluate p xs)
-                               (p/evaluate q xs)))
-                       (u/bigint
-                        (p/evaluate (g/mul p q) xs)))))))
-
-(deftest evaluation-homomorphism-unit
   (testing "specific test cases from generative tests"
     (let [p (p/make 4 [[[0 0 0 0] -2] [[1 6 3 3] 3]])
           q (p/make 4 [[[0 0 0 3] 3] [[4 0 6 2] 1]])

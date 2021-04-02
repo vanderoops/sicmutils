@@ -404,18 +404,18 @@
       (gcd-test "S2" (p/make 2 {[0 0] 1}) u v))))
 
 
-;; Currently we only do GCD testing of univariate polynomials, because
-;; we find that unfortunately clojure.test.check is very good at finding
-;; polynomials even of arity 2 that will exceed the time allotment for
-;; findinig GCDs. Hopefully we can fix that, but for the  present this
-;; explains why we draw arities from the singleton set [1].
+;; Currently we only do GCD testing of univariate polynomials, because we find
+;; that unfortunately clojure.test.check is very good at finding polynomials
+;; even of arity 2 that will exceed the time allotment for finding GCDs.
+;; Hopefully we can fix that, but for the present this explains why we draw
+;; arities from the singleton set [1].
 
 (def ^:private num-tests 20)
 
 (defspec ^:long g-divides-u-and-v num-tests
   (gen/let [arity (gen/elements [1])]
-    (prop/for-all [u (p-test/generate-poly arity)
-                   v (p-test/generate-poly arity)]
+    (prop/for-all [u (sg/polynomial :arity arity)
+                   v (sg/polynomial :arity arity)]
                   (let [g (g/gcd u v)]
                     (or (and (v/zero? u)
                              (v/zero? v)
@@ -425,9 +425,12 @@
 
 (defspec ^:long d-divides-gcd-ud-vd num-tests
   (gen/let [arity (gen/elements [1])]
-    (prop/for-all [u (p-test/generate-nonzero-poly arity)
-                   v (p-test/generate-nonzero-poly arity)
-                   d (p-test/generate-nonzero-poly arity)]
+    (prop/for-all [u (sg/polynomial :arity arity
+                                    :nonzero? true)
+                   v (sg/polynomial :arity arity
+                                    :nonzero? true)
+                   d (sg/polynomial :arity arity
+                                    :nonzero? true)]
                   (let [ud (g/mul u d)
                         vd (g/mul v d)
                         g (g/gcd ud vd)]

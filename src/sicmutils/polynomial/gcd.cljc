@@ -358,7 +358,12 @@
 		                       poly:one)
 		                   (gcd-classical u v))))))))
 
-(defmethod g/gcd [::p/polynomial ::p/polynomial] [u v] (gcd-dispatch u v))
+(def ^{:doc "main GCD entrypoint."}
+  gcd
+  gcd-dispatch)
+
+(defmethod g/gcd [::p/polynomial ::p/polynomial] [u v]
+  (gcd-dispatch u v))
 
 (def ^:private gcd-seq
   "Compute the GCD of a sequence of polynomials (we take care to

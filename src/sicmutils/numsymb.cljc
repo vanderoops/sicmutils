@@ -99,7 +99,9 @@
          (sum? a) (cond (sum? b) `(~'+ ~@(operands a) ~@(operands b))
                         :else `(~'+ ~@(operands a) ~b))
          (sum? b) `(~'+ ~a ~@(operands b))
-         :else `(~'+ ~a ~b))))
+         :else `(~'+ ~a ~b)))
+  ([a b & more]
+   (reduce add (add a b) more)))
 
 (defn- sub [a b]
   (cond (and (v/number? a) (v/number? b)) (g/sub a b)
@@ -108,10 +110,12 @@
         (= a b) 0
         :else `(~'- ~a ~b)))
 
-(defn- sub-n [& args]
-  (cond (nil? args) 0
-        (nil? (next args)) (g/negate (first args))
-        :else (sub (first args) (reduce add (next args)))))
+(defn- sub-n
+  ([] 0)
+  ([x] (g/negate x))
+  ([x y] (sub x y))
+  ([x y & more]
+   (sub x (apply add (cons y more)))))
 
 (defn- mul
   ([] 1)
@@ -131,9 +135,12 @@
          (product? a) (cond (product? b) `(~'* ~@(operands a) ~@(operands b))
                             :else `(~'* ~@(operands a) ~b))
          (product? b) `(~'* ~a ~@(operands b))
-         :else `(~'* ~a ~b))))
+         :else `(~'* ~a ~b)))
+  ([a b & more]
+   (reduce mul (mul a b) more)))
 
-(defn- div [a b]
+(defn- div
+  [a b]
   (cond (and (v/number? a) (v/number? b)) (g/div a b)
         (v/number? a) (if (v/zero? a) a `(~'/ ~a ~b))
         (v/number? b) (cond (v/zero? b) (u/arithmetic-ex "division by zero")
@@ -141,10 +148,12 @@
                             :else `(~'/ ~a ~b))
         :else `(~'/ ~a ~b)))
 
-(defn- div-n [arg & args]
-  (cond (nil? arg) 1
-        (nil? args) (g/invert arg)
-        :else (div arg (reduce mul args))))
+(defn- div-n
+  ([] 1)
+  ([x] (div 1 x))
+  ([x y] (div x y))
+  ([x y & more]
+   (div x (apply mul (cons y more)))))
 
 (defn- modulo [a b]
   (mod-rem a b modulo 'modulo))
@@ -549,9 +558,9 @@
    'and sym:and
    'or sym:or
    'not sym:not
-   '+ #(reduce add %&)
+   '+ add
    '- sub-n
-   '* #(reduce mul %&)
+   '* mul
    '/ div-n
    'modulo modulo
    'remainder remainder

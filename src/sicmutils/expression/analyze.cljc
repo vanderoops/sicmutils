@@ -133,11 +133,7 @@
 
   (known-operation? [analyzer x]
     "Returns true if the symbolic operation `x` is considered fundamental by
-    `analyzer`, false otherwise.")
-
-  (new-variables [analyzer n]
-    "Returns `n` new symbolic variables used to represent values outside the
-     domain of computation for `analyzer`"))
+    `analyzer`, false otherwise."))
 
 (defn make-analyzer
   "Make-analyzer takes an analyzer `backend` (which implements [[ICanonicalize]])

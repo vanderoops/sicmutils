@@ -28,7 +28,7 @@
 (def bigint
   "js/BigInt in cljs, clojure.lang.BigInt in clj."
   #?(:cljs
-     (gen/fmap u/bigint gen/large-integer)
+     (gen/fmap u/bigint gen/small-integer)
      :clj
      gen/size-bounded-bigint))
 
@@ -298,20 +298,22 @@
       :or {nonzero? true
            arity gen/nat
            coefs small-integral}}]
-  (let [arity (if (integer? arity)
-                (gen/return arity)
-                arity)
-        expts (gen/bind arity #(gen/vector gen/nat arity))
-        term  (gen/tuple expts any-integral)
-        pgen  (gen/fmap (fn [terms]
-                          (let [p (poly/make arity terms)]
-                            (if (poly/explicit-polynomial? p)
-                              p
-                              (poly/make-constant arity p))))
-                        (gen/vector term))]
-    (if nonzero?
-      (gen/such-that (complement v/zero?) pgen)
-      pgen)))
+  (letfn [(poly-gen [arity]
+            (let [expts (gen/vector gen/nat arity)
+                  term  (gen/tuple expts coefs)
+                  pgen  (gen/fmap (fn [terms]
+                                    (let [p (poly/make arity terms)]
+                                      (if (poly/explicit-polynomial? p)
+                                        p
+                                        (poly/make-constant arity p))))
+                                  (gen/vector term))]
+              (if nonzero?
+                (gen/such-that (complement v/zero?) pgen)
+                pgen)))]
+    (let [arity (if (integer? arity)
+                  (gen/return arity)
+                  arity)]
+      (gen/bind arity poly-gen))))
 
 ;; ## Custom Almost-Equality
 
