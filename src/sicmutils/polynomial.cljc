@@ -972,7 +972,7 @@
   analyzer before we get here. The result is a Polynomial object representing
   the polynomial structure of the input over the unknowns."
   ([expr]
-   (expression-> vector compare))
+   (expression-> expr vector compare))
   ([expr cont]
    (expression-> expr cont compare))
   ([expr cont v-compare]
@@ -1016,7 +1016,7 @@
 (defmethod g/exact-divide [::polynomial ::coeff] [p q]
   (evenly-divide p q))
 
-;; quotient, remainder... TODO search for more functions!
+;; quotient, remainder, modulo... TODO search for more functions!
 
 (defmethod g/square [::polynomial] [a] (poly:* a a))
 (defmethod g/abs [::polynomial] [a] (abs a))

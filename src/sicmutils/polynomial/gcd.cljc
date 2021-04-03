@@ -374,22 +374,15 @@
   "Compute the gcd of the all the partial derivatives of p."
   [p]
   (gcd-seq
-   (p/partial-derivatives p))
-
-  ;; TODO this is the original one from split-poly.scm.
-  #_(let [n (f/arity p)]
-      (if (zero? n)
-	      poly:one
-	      (loop [i   1
-               ans (poly:partial-derivative p [0])]
-	        (if (or (= i n) (v/one? ans))
-	          ans
-	          (recur (inc i)
-		               (gcd (poly:partial-derivative p [i]) ans)))))))
+   (p/partial-derivatives p)))
 
 ;; several observations. many of the gcds we find when attempting the
 ;; troublesome GCD are the case where we have two monomials. This can be done
 ;; trivially without lowering arity.
+;;
+;; TODO we can totally do this! Lower should NOT raise back up properly if you
+;; get down to a constant. But I don't know if I can do that if I still have
+;; with-lowered around...
 ;;
 ;; secondly, we observe that lowering arity often produces constant polynomials.
 ;; can we get away with just dropping these to scalars, instead of constant

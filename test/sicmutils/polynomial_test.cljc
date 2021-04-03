@@ -590,6 +590,51 @@
       (is (= '(+ (* -1 b) f) (poly-simp '(- (+ a c f) (+ c b a))))))))
 
 (deftest lower-raise-tests
+  (testing "lower, raise are inverse"
+    (let [->poly (fn [x] (p/expression-> x (fn [p _] p)))
+          f2 (->poly
+              '(+ (expt x2 2)
+                  (* 2 (expt x1 2) x2)
+                  (expt x1 2)
+                  1))
+          d2 (->poly
+              '(+ (* 2 (expt x1 2) (expt x2 2))
+                  (* x1 x2)
+                  (* 2 x1)))
+          d3 (->poly
+              '(+ (* x2 x2 x3 x3)
+                  (* x2 x2 x3)
+                  (* 2 x1 x1 x2 x3)
+                  (* x1 x3)))
+          d4 (->poly
+              '(+ (* x1 x1 x4 x4)
+                  (* x2 x2 x3 x4)
+                  (* x1 x1 x2 x4)
+                  (* x2 x4)
+                  (* x1 x1 x2 x3)))]
+      (is (= (p/make [0
+                      (p/make [2 1])
+                      (p/make [0 0 2])])
+             (p/lower-arity d2)))
+
+      (is (= (p/make [0
+                      (p/make [2 1 2 1])
+                      (p/make [0 0 2 0 2])
+                      (p/make [2 5 2])
+                      (p/make [0 0 2 4])])
+             (p/lower-arity
+              (g/* d2 f2))))
+
+      (is (= (p/make [0
+                      0
+                      (p/make [4 4 5 4 1])
+                      (p/make [0 0 8 4 8 4])
+                      (p/make [4 12 9 2 4 0 4])
+                      (p/make [0 0 8 20 8])
+                      (p/make [0 0 0 0 4 8])])
+             (g/* (p/lower-arity d2)
+                  (p/lower-arity (g/* d2 f2)))))))
+
   (checking "lower-and-raise-arity-are-inverse" 30
             [p (gen/let [arity (gen/choose 2 10)]
                  (sg/polynomial :arity arity
