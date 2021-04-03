@@ -25,6 +25,7 @@
             [sicmutils.polynomial :as p
              #?@(:cljs [:refer [Polynomial]])]
             [sicmutils.util :as u]
+            [sicmutils.util.aggregate :as ua]
             [sicmutils.util.stopwatch :as us]
             [sicmutils.value :as v]
             [taoensso.timbre :as log])
@@ -48,10 +49,14 @@
 (def ^:private gcd-monomials (atom 0))
 
 (defn gcd-stats []
-  (when (> (count @gcd-memo) 0)
-    (log/info (format "GCD cache hit rate %.2f%% (%d entries)"
-                      (* 100. (/ @gcd-cache-hit (+ @gcd-cache-hit @gcd-cache-miss)))
-                      (count @gcd-memo))))
+  (let [memo-count (count @gcd-memo)]
+    (when (> memo-count 0)
+      (let [hits   @gcd-cache-hit
+            misses @gcd-cache-miss]
+        (log/info (format "GCD cache hit rate %.2f%% (%d entries)"
+                          (* 100 (/ hits (+ hits misses)))
+                          memo-count)))))
+
   (log/info (format "GCD triv %d mono %d"
                     @gcd-trivial-constant
                     @gcd-monomials)))
@@ -68,14 +73,28 @@
                 (if (done? c) (reduced c) c))))]
     (partial reduce rf)))
 
-(defn ^:private native-gcd [l r]
-  (g/gcd (u/biginteger l)
-         (u/biginteger r)))
 
-(defn primitive-gcd
-  "A function which will return the gcd of a sequence of numbers."
-  [xs]
-  (g/abs ((reduce-until v/one? native-gcd) xs)))
+;; TODO hardcode the `g/gcd` call, like in generic/expt
+(let [big-gcd (get-method g/gcd [(v/kind (u/biginteger 0))])]
+  (defn ^:private native-gcd
+    ([] 0)
+    ([l] l)
+    ([l r]
+     (big-gcd (u/biginteger l)
+              (u/biginteger r))))
+
+  (defn primitive-gcd
+    "A function which will return the gcd of a sequence of numbers."
+    [xs]
+    (g/abs
+     (transduce
+      (comp (ua/halt-at v/one?)
+            (map u/biginteger))
+      (fn
+        ([] 0)
+        ([x] x)
+        ([x y] (big-gcd x y)))
+      xs))))
 
 (defn ^:private with-content-removed
   "For multivariate polynomials. u and v are considered here as
@@ -84,8 +103,8 @@
   primitive parts are supplied to the continuation, the result of which
   has the content reattached and is returned."
   [gcd u v continue]
-  (let [gcd-reducer (reduce-until v/one? gcd)
-        content #(-> % p/coefficients gcd-reducer)
+  (let [gcd-reducer (partial transduce (ua/halt-at v/one?) gcd)
+        content #(gcd-reducer (p/coefficients %))
         ku (content u)
         kv (content v)
         pu (p/map-coefficients #(g/exact-divide % ku) u)
