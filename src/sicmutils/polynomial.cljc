@@ -209,7 +209,7 @@
   {:pre [(explicit-polynomial? p)]}
   (.-arity ^Polynomial p))
 
-(defn- bare-terms [p]
+(defn ^:no-doc bare-terms [p]
   {:pre [(explicit-polynomial? p)]}
   (.-xs->c ^Polynomial p))
 
@@ -388,10 +388,10 @@
   TODO ALSO check that this is bailing out correctly."
   ([dense-coefficients]
    (let [terms (dense->terms dense-coefficients)]
-     (guarded-make 1 terms)))
+     (terms->polynomial 1 terms)))
   ([arity expts->coef]
    (let [terms (sparse->terms expts->coef)]
-     (guarded-make arity terms))))
+     (terms->polynomial arity terms))))
 
 (defn poly:identity
   "TODO modeled on sparse-identity-term"
@@ -465,12 +465,12 @@
   [f p]
   (if (coeff? p)
     (f p)
-    (guarded-make (bare-arity p)
-                  (into empty-terms
-                        (for [[xs c] (bare-terms p)
-                              :let [fc (f c)]
-                              :when (not (v/zero? fc))]
-                          [xs fc])))))
+    (terms->polynomial (bare-arity p)
+                       (into empty-terms
+                             (for [[xs c] (bare-terms p)
+                                   :let [fc (f c)]
+                                   :when (not (v/zero? fc))]
+                               [xs fc])))))
 
 (defn map-exponents
   "Map the function f over the exponents of each monomial in p,
