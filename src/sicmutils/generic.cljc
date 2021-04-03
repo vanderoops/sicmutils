@@ -459,6 +459,11 @@
   multiple](https://en.wikipedia.org/wiki/Least_common_multiple) of the two
   inputs `a` and `b`.")
 
+(defmethod lcm :default [a b]
+  (abs
+   (divide (* a b)
+           (gcd a b))))
+
 ;; ### Trigonometric functions
 
 (declare sin)
