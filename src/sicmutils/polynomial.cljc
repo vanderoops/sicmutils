@@ -102,7 +102,7 @@
 
 ;; TODO: from pcf, keep?
 
-(def base? v/number?)
+(def base? v/numerical?)
 
 ;; ## Term List
 ;;
@@ -936,8 +936,8 @@
    'square (fn [x] (poly:* x x))
    'cube (fn [x] (poly:* x (poly:* x x)))})
 
-(def ^:private operators-known
-  (into #{} (keys operator-table)))
+(def ^:no-doc operators-known
+  (u/keyset operator-table))
 
 (defn ->expression
   "This is the output stage of Flat Polynomial canonical form simplification. The

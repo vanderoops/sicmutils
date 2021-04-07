@@ -111,7 +111,7 @@
 
   (testing "GCD: arity 3 case"
     (binding [pg/*poly-gcd-time-limit* #?(:clj  [2 :seconds]
-                                          :cljs [6 :seconds])]
+                                          :cljs [20 :seconds])]
       (let [[X Y Z] (p/new-variables 3)
             X+Y (g/+ X Y)
             X+Z (g/+ X Z)
@@ -202,7 +202,7 @@
         sw (us/stopwatch)]
     (is (= df (pg/gcd df)))
     (is (= dg (pg/gcd dg)))
-    (binding [pg/*poly-gcd-time-limit* [10 :seconds]
+    (binding [pg/*poly-gcd-time-limit* [30 :seconds]
               pg/*poly-gcd-cache-enable* false]
       (is (= d (pg/gcd df dg))))
     (log/info "gcd-test" name (us/repr sw))))

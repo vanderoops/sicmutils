@@ -72,7 +72,7 @@
 
   Using the generic [[sicmutils.generic/+]] function."
   ([xs]
-   (reduce g/+ xs))
+   (apply g/+ xs))
   ([f low high]
    (transduce (map f) g/+ (range low high))))
 
