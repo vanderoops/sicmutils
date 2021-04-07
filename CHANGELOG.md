@@ -6,6 +6,10 @@
 
   - added ability to do incremental simplification in numsymb
 
+  - polynomials have metadata, can be evaluated
+
+  - rational functions have metadata, can be evaluated
+
 - From #339:
 
   - `Structure` instances can now hold metadata.

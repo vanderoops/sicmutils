@@ -23,28 +23,32 @@
             [sicmutils.expression :as x]
             [sicmutils.generic :as g]
             [sicmutils.numsymb :as sym]
-            [sicmutils.polynomial :as p #?@(:cljs [:refer [Polynomial]])]
+            [sicmutils.polynomial :as p]
             [sicmutils.polynomial.gcd :as poly]
             [sicmutils.ratio :as r]
             [sicmutils.util :as u]
             [sicmutils.value :as v])
   #?(:clj
-     (:import (sicmutils.polynomial Polynomial))))
+     (:import (clojure.lang AFn IFn IObj))))
 
-(deftype RationalFunction [arity u v]
+;; TODO fill in!
+
+(declare evaluate)
+
+(deftype RationalFunction [arity u v m]
   v/Value
   (zero? [_] (v/zero? u))
   (one? [_] (and (v/one? u) (v/one? v)))
   (identity? [_] (and (v/identity? u) (v/one? v)))
 
   (zero-like [_]
-    (RationalFunction. arity (v/zero-like u) (v/one-like v)))
+    (RationalFunction. arity (v/zero-like u) (v/one-like v) m))
 
   (one-like [_]
-    (RationalFunction. arity (v/one-like u) (v/one-like v)))
+    (RationalFunction. arity (v/one-like u) (v/one-like v) m))
 
   (identity-like [_]
-    (RationalFunction. arity (v/identity-like u) (v/one-like v)))
+    (RationalFunction. arity (v/identity-like u) (v/one-like v) m))
 
   (freeze [_] `(~'/ ~(v/freeze u) ~(v/freeze v)))
   (kind [_] ::rational-function)
@@ -54,9 +58,59 @@
        (toString [p] (str u " : " v))
        (equals [_ b]
                (and (instance? RationalFunction b)
-                    (and (= arity (.-arity b))
-                         (= u (.-u b))
-                         (= v (.-v b)))))]
+                    (let [b ^RationalFunction b]
+                      (and (= arity (.-arity b))
+                           (= u (.-u b))
+                           (= v (.-v b))))))
+
+       IObj
+       (meta [_] m)
+       (withMeta [_ m] (RationalFunction. arity u v m))
+
+       IFn
+       (invoke [this a]
+               (evaluate this [a]))
+       (invoke [this a b]
+               (evaluate this [a b]))
+       (invoke [this a b c]
+               (evaluate this [a b c]))
+       (invoke [this a b c d]
+               (evaluate this [a b c d]))
+       (invoke [this a b c d e]
+               (evaluate this [a b c d e]))
+       (invoke [this a b c d e f]
+               (evaluate this [a b c d e f]))
+       (invoke [this a b c d e f g]
+               (evaluate this [a b c d e f g]))
+       (invoke [this a b c d e f g h]
+               (evaluate this [a b c d e f g h]))
+       (invoke [this a b c d e f g h i]
+               (evaluate this [a b c d e f g h i]))
+       (invoke [this a b c d e f g h i j]
+               (evaluate this [a b c d e f g h i j]))
+       (invoke [this a b c d e f g h i j k]
+               (evaluate this [a b c d e f g h i j k]))
+       (invoke [this a b c d e f g h i j k l]
+               (evaluate this [a b c d e f g h i j k l]))
+       (invoke [this a b c d e f g h i j k l m-arg]
+               (evaluate this [a b c d e f g h i j k l m-arg]))
+       (invoke [this a b c d e f g h i j k l m-arg n]
+               (evaluate this [a b c d e f g h i j k l m-arg n]))
+       (invoke [this a b c d e f g h i j k l m-arg n o]
+               (evaluate this [a b c d e f g h i j k l m-arg n o]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r s]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r s]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r s t]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r s t rest]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t rest]))
+       (applyTo [this xs] (AFn/applyToHelper this xs))]
 
       :cljs
       [Object
@@ -69,6 +123,56 @@
                          (= u (.-u b))
                          (= v (.-v b)))))
 
+       IMeta
+       (-meta [_] m)
+
+       IWithMeta
+       (-with-meta [_ m] (RationalFunction. arity u v m))
+
+       IFn
+       (-invoke [this a]
+                (evaluate this [a]))
+       (-invoke [this a b]
+                (evaluate this [a b]))
+       (-invoke [this a b c]
+                (evaluate this [a b c]))
+       (-invoke [this a b c d]
+                (evaluate this [a b c d]))
+       (-invoke [this a b c d e]
+                (evaluate this [a b c d e]))
+       (-invoke [this a b c d e f]
+                (evaluate this [a b c d e f]))
+       (-invoke [this a b c d e f g]
+                (evaluate this [a b c d e f g]))
+       (-invoke [this a b c d e f g h]
+                (evaluate this [a b c d e f g h]))
+       (-invoke [this a b c d e f g h i]
+                (evaluate this [a b c d e f g h i]))
+       (-invoke [this a b c d e f g h i j]
+                (evaluate this [a b c d e f g h i j]))
+       (-invoke [this a b c d e f g h i j k]
+                (evaluate this [a b c d e f g h i j k]))
+       (-invoke [this a b c d e f g h i j k l]
+                (evaluate this [a b c d e f g h i j k l]))
+       (-invoke [this a b c d e f g h i j k l m-arg]
+                (evaluate this [a b c d e f g h i j k l m-arg]))
+       (-invoke [this a b c d e f g h i j k l m-arg n]
+                (evaluate this [a b c d e f g h i j k l m-arg n]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o]
+                (evaluate this [a b c d e f g h i j k l m-arg n o]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r s]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r s]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r s t]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r s t rest]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t rest]))
+
        IPrintWithWriter
        (-pr-writer
         [x writer _]
@@ -76,6 +180,16 @@
                    "#object[sicmutils.structure.RationalFunction \""
                    (.toString x)
                    "\"]"))]))
+
+(do (ns-unmap 'sicmutils.rational-function '->RationalFunction)
+    (defn ->RationalFunction
+      "Positional factory function for [[RationalFunction]].
+
+  The final argument `m` defaults to nil if not supplied."
+      ([arity u v]
+       (RationalFunction. arity u v nil))
+      ([arity u v m]
+       (RationalFunction. arity u v m))))
 
 (defn rational-function? [r]
   (instance? RationalFunction r))
@@ -86,7 +200,7 @@
   [u v]
   {:pre [(p/polynomial? u)
          (p/polynomial? v)
-         (= (.-arity u) (.-arity v))]}
+         (= (p/arity u) (p/arity v))]}
   (when (v/zero? v)
     (u/arithmetic-ex "Can't form rational function with zero denominator"))
   ;; annoying: we are using native operations here for the base coefficients
@@ -98,7 +212,7 @@
   ;; (note from sritchie: I don't think this is true anymore, as of 8.26.20.
   ;; Should we remove the comment, or is there some more work to do to make this
   ;; more efficient?)
-  (let [arity (.-arity u)
+  (let [arity (p/arity u)
         cv (p/coefficients v)
         lcv (last cv)
         cs (into (into #{} cv) (p/coefficients u))
@@ -157,14 +271,14 @@
 
 (defn addp
   "Add a rational function to a polynomial."
-  [^RationalFunction r ^Polynomial p]
+  [^RationalFunction r p]
   (if (v/zero? p)
     r
     (let [v (.-v r)]
       (make (p/poly:+ (.-u r) (p/poly:* v p)) v))))
 
 (defn subp
-  [^RationalFunction r ^Polynomial p]
+  [^RationalFunction r p]
   {:pre [(rational-function? r)
          (p/polynomial? p)]}
   (if (v/zero? p)
@@ -305,10 +419,10 @@
 (defmethod g/add [::p/polynomial ::rational-function] [p r] (addp r p))
 
 (defmethod g/add [::rational-function ::v/number] [a b]
-  (addp a (p/make-constant (.-arity a) b)))
+  (addp a (p/make-constant (.-arity ^RationalFunction a) b)))
 
 (defmethod g/add [::v/number ::rational-function] [b a]
-  (addp a (p/make-constant (.-arity a) b)))
+  (addp a (p/make-constant (.-arity ^RationalFunction a) b)))
 
 (defmethod g/sub [::rational-function ::rational-function] [a b] (sub a b))
 (defmethod g/sub [::rational-function ::p/polynomial] [r p] (subp r p))

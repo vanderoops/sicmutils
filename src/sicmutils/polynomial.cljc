@@ -28,7 +28,9 @@
             [sicmutils.modint :as mi]
             [sicmutils.numsymb :as sym]
             [sicmutils.util :as u]
-            [sicmutils.value :as v]))
+            [sicmutils.value :as v])
+  #?(:clj
+     (:import (clojure.lang AFn IFn IObj))))
 
 ;; TODO note that this differs from scmutils because we can extend the
 ;; coefficient space.
@@ -131,9 +133,9 @@
 ;;
 ;; TODO look at PowerSeries, see what we're missing.
 
-(declare make-constant poly->str poly:=)
+(declare evaluate make-constant poly->str poly:=)
 
-(deftype Polynomial [arity xs->c]
+(deftype Polynomial [arity xs->c m]
   v/Value
   (zero? [_]
     (empty? xs->c))
@@ -152,7 +154,7 @@
                 (v/one? c)))))
 
   (zero-like [_]
-    (Polynomial. arity empty-terms))
+    (Polynomial. arity empty-terms m))
 
   (one-like [_]
     (let [one (if-let [term (first xs->c)]
@@ -167,7 +169,7 @@
                 (v/one-like (coefficient term))
                 1)
           term (make-term [1] one)]
-      (Polynomial. arity [term])))
+      (Polynomial. arity [term] m)))
 
   (exact? [_] false)
   (freeze [_] `(~'polynomial ~arity ~xs->c))
@@ -179,14 +181,114 @@
   #?@(:clj
       [Object
        (equals [this that] (poly:= this that))
-       (toString [p] (poly->str p))]
+       (toString [p] (poly->str p))
+
+       IObj
+       (meta [_] m)
+       (withMeta [_ meta] (Polynomial. arity xs->c m))
+
+
+       IFn
+       (invoke [this a]
+               (evaluate this [a]))
+       (invoke [this a b]
+               (evaluate this [a b]))
+       (invoke [this a b c]
+               (evaluate this [a b c]))
+       (invoke [this a b c d]
+               (evaluate this [a b c d]))
+       (invoke [this a b c d e]
+               (evaluate this [a b c d e]))
+       (invoke [this a b c d e f]
+               (evaluate this [a b c d e f]))
+       (invoke [this a b c d e f g]
+               (evaluate this [a b c d e f g]))
+       (invoke [this a b c d e f g h]
+               (evaluate this [a b c d e f g h]))
+       (invoke [this a b c d e f g h i]
+               (evaluate this [a b c d e f g h i]))
+       (invoke [this a b c d e f g h i j]
+               (evaluate this [a b c d e f g h i j]))
+       (invoke [this a b c d e f g h i j k]
+               (evaluate this [a b c d e f g h i j k]))
+       (invoke [this a b c d e f g h i j k l]
+               (evaluate this [a b c d e f g h i j k l]))
+       (invoke [this a b c d e f g h i j k l m-arg]
+               (evaluate this [a b c d e f g h i j k l m-arg]))
+       (invoke [this a b c d e f g h i j k l m-arg n]
+               (evaluate this [a b c d e f g h i j k l m-arg n]))
+       (invoke [this a b c d e f g h i j k l m-arg n o]
+               (evaluate this [a b c d e f g h i j k l m-arg n o]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r s]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r s]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r s t]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t]))
+       (invoke [this a b c d e f g h i j k l m-arg n o p q r s t rest]
+               (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t rest]))
+       (applyTo [this xs] (AFn/applyToHelper this xs))]
 
       :cljs
-      [IEquiv
+      [Object
+       (toString [p] (poly->str p))
+
+       IEquiv
        (-equiv [this that] (poly:= this thiat))
 
-       Object
-       (toString [p] (poly->str p))
+       IMeta
+       (-meta [_] m)
+
+       IWithMeta
+       (-with-meta [_ m] (Polynomial. arity xs->c m))
+
+       IFn
+       (-invoke [this a]
+                (evaluate this [a]))
+       (-invoke [this a b]
+                (evaluate this [a b]))
+       (-invoke [this a b c]
+                (evaluate this [a b c]))
+       (-invoke [this a b c d]
+                (evaluate this [a b c d]))
+       (-invoke [this a b c d e]
+                (evaluate this [a b c d e]))
+       (-invoke [this a b c d e f]
+                (evaluate this [a b c d e f]))
+       (-invoke [this a b c d e f g]
+                (evaluate this [a b c d e f g]))
+       (-invoke [this a b c d e f g h]
+                (evaluate this [a b c d e f g h]))
+       (-invoke [this a b c d e f g h i]
+                (evaluate this [a b c d e f g h i]))
+       (-invoke [this a b c d e f g h i j]
+                (evaluate this [a b c d e f g h i j]))
+       (-invoke [this a b c d e f g h i j k]
+                (evaluate this [a b c d e f g h i j k]))
+       (-invoke [this a b c d e f g h i j k l]
+                (evaluate this [a b c d e f g h i j k l]))
+       (-invoke [this a b c d e f g h i j k l m-arg]
+                (evaluate this [a b c d e f g h i j k l m-arg]))
+       (-invoke [this a b c d e f g h i j k l m-arg n]
+                (evaluate this [a b c d e f g h i j k l m-arg n]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o]
+                (evaluate this [a b c d e f g h i j k l m-arg n o]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r s]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r s]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r s t]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t]))
+       (-invoke [this a b c d e f g h i j k l m-arg n o p q r s t rest]
+                (evaluate this [a b c d e f g h i j k l m-arg n o p q r s t rest]))
 
        IPrintWithWriter
        (-pr-writer [x writer _]
@@ -194,6 +296,16 @@
                               "#object[sicmutils.structure.Polynomial \""
                               (.toString x)
                               "\"]"))]))
+
+(do (ns-unmap 'sicmutils.polynomial '->Polynomial)
+    (defn ->Polynomial
+      "Positional factory function for [[Polynomial]].
+
+  The final argument `m` defaults to nil if not supplied."
+      ([arity xs->c]
+       (Polynomial. arity xs->c nil))
+      ([arity xs->c m]
+       (Polynomial. arity xs->c m))))
 
 (defn explicit-polynomial?
   "Returns true if the supplied argument is an instance of `Polynomial`, false
