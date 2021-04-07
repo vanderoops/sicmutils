@@ -27,7 +27,6 @@
                            some core-some}
                   #?@(:cljs [:exclude [get-in some]]))
   (:require [sicmutils.differential :as d]
-            [sicmutils.expression :as x]
             [sicmutils.function :as f]
             [sicmutils.generic :as g]
             [sicmutils.series :as series]
@@ -38,7 +37,7 @@
   #?(:clj
      (:import [clojure.lang Associative AFn IFn Sequential])))
 
-(declare fmap generate I identity-like identity? m:=)
+(declare fmap identity-like identity? m:=)
 
 (derive ::square-matrix ::matrix)
 (derive ::column-matrix ::matrix)
@@ -540,11 +539,14 @@
   [m u]
   (when (not= (num-cols m) (count u))
     (u/illegal "matrix and tuple incompatible for multiplication"))
-  (s/up* (map (fn [i]
-                (apply g/+ (for [k (range (num-cols m))]
-                             (g/* (core-get-in m [i k])
-                                  (get u k)))))
-              (range (num-rows m)))))
+  (s/up*
+   (map (fn [i]
+          (ua/generic-sum
+           (fn [k]
+             (g/* (core-get-in m [i k])
+                  (get u k)))
+           0 (num-cols m)))
+        (range (num-rows m)))))
 
 (defn- d*M
   "Multiply a matrix `m` by down tuple `d` on the left. The return value has
@@ -554,10 +556,11 @@
     (u/illegal "matrix and tuple incompatible for multiplication"))
   (s/down*
    (map (fn [i]
-          (apply g/+ (for [k (range (num-rows m))]
-                       (g/* (get d k)
-                            (core-get-in m [i k])
-                            ))))
+          (ua/generic-sum
+           (fn [k]
+             (g/* (get d k)
+                  (core-get-in m [i k])))
+           0 (num-rows m)))
         (range (num-cols m)))))
 
 (def ^{:dynamic true
@@ -733,11 +736,12 @@
     2 (let [[[a b] [c d]] m]
         (g/- (g/* a d)
              (g/* b c)))
-    (apply g/+ (map g/*
-                    (cycle [1 -1])
-                    (nth m 0)
-                    (for [i (range (num-rows m))]
-                      (determinant (without m 0 i)))))))
+    (ua/generic-sum
+     (map g/*
+          (cycle [1 -1])
+          (nth m 0)
+          (for [i (range (num-rows m))]
+            (determinant (without m 0 i)))))))
 
 (defn cofactors
   "Returns the matrix of cofactors of the supplied square matrix `m`."
