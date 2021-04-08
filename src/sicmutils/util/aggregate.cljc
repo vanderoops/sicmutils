@@ -93,3 +93,23 @@
        (if (pred result)
          (reduced result)
          (rf result input))))))
+
+(defn accumulation
+  "TODO document"
+  [plus id]
+  (fn
+    ([] id)
+    ([x] x)
+    ([x y] (combine x y))
+    ([x y & more]
+     (reduce (combine x y) combine more))))
+
+(defn inverse-accumulation
+  "TODO document./"
+  [minus plus invert id]
+  (fn
+    ([] id)
+    ([x] (invert x))
+    ([x y] (minus x y))
+    ([x y & more]
+     (minus x (reduce plus (cons y more))))))
